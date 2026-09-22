@@ -1,0 +1,27 @@
+[project]
+name = "image-quality-check"
+version = "1.1.0"
+description = "AI-Based Wound Healing Progress Analysis"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn==0.52.4",
+    "httpx==0.28.1",
+    "pydantic==2.13.5",
+    "python-multipart==0.0.32",
+    "ultralytics==8.4.140",
+    "torch==2.14.0",
+    "torchvision==0.29.0",
+    "opencv-python==5.0.0.93",
+    "numpy==2.5.2",
+    "pyyaml==6.0.3",
+    "pillow==12.3.0",
+    "segmentation-models-pytorch==0.5.0",
+    "albumentations==2.0.8",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.16.6",
+]

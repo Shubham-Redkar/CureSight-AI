@@ -1,0 +1,27 @@
+ml_pipeline:
+  wound_gate_model: api/models/wound_gate/best.pt
+  require_wound_gate: true
+  yolo_model: api/models/yolo/best.pt
+  require_yolo: true
+  yolo_confidence_threshold: 0.25
+  unet_model: api/models/unet/best.pth
+  require_unet: true
+  roi_padding: 20
+  min_mask_ratio: 0.001
+  max_mask_ratio: 0.98
+
+image_quality:
+  min_width: 224 # minimum pixel width  (match model imgsz)
+  min_height: 224 # minimum pixel height (match model imgsz)
+  min_brightness: 50.0 # grayscale mean — dark.jpg scores 35.6, real wound p5=79.6
+  max_brightness: 210.0 # grayscale mean — avoid near-overexposed images
+  min_contrast: 25.0 # grayscale std  — low_contrast.jpg scores 19.3
+  min_sharpness: 8.0 # Laplacian var (post pre-blur)  — blurred=1.78, real wound p2=5.8, p5=8.3
+  max_glare_fraction: 0.20 # fraction of pixels with any channel > 250 — wound tissue has specular highlights; p95=8.6% but some images reach 25%+
+  min_saturation: 15.0 # HSV saturation mean — grayscale/near-black images rejected
+  max_aspect_ratio: 3.0 # reject extreme panoramic crops (w/h > 3 or h/w > 3)
+
+api_limits:
+  max_upload_size_mb: 10
+  max_image_width: 4096
+  max_image_height: 4096
