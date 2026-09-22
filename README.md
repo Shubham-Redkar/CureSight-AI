@@ -713,3 +713,6 @@ Clinical Report
 ```
 
 The focus is not simply to build an image-classification model, but to develop a complete and traceable workflow around **wound measurement and longitudinal healing assessment**.
+
+## 🖥️ Web Interface (React + Node.js)
+The clinical dashboard is built with React and Vite. It connects to the Node.js backend to manage patient data and wound assessments.
