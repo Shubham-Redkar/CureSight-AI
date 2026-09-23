@@ -213,12 +213,15 @@ async def process_bytes(image_bytes: bytes, pixels_per_cm: float | None, models:
         )
         
     # 5. Validate dimensions
+    # We will downscale oversized images later in the pipeline after quality checks,
+    # but we retain a generous hard limit to prevent OOM/decompression bombs.
     height, width = image_bgr.shape[:2]
-    if width > max_width or height > max_height:
+    hard_limit = 10000
+    if width > hard_limit or height > hard_limit:
         raise_structured_error(
             status_code=413,
             code="FILE_TOO_LARGE",
-            message=f"Image dimensions ({width}x{height}) exceed maximum allowed ({max_width}x{max_height}).",
+            message=f"Image dimensions ({width}x{height}) exceed absolute security limit ({hard_limit}x{hard_limit}).",
             request_id=request_id
         )
         

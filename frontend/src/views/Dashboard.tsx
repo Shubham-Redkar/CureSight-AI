@@ -53,9 +53,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const handleAction = (assessment: any) => {
-    setSelectedPatientId(assessment.patientId);
-    setSelectedWoundId(assessment.woundId);
-    setSelectedAssessmentId(assessment.id);
+    // Find the wound to navigate properly
+    const wound = wounds.find(w => w.id === assessment.woundId);
+    if (wound) {
+      setSelectedPatientId(String(wound.patientId));
+    }
+    setSelectedWoundId(String(assessment.woundId));
+    setSelectedAssessmentId(String(assessment.id));
     setActiveTab('assessment');
   };
 
@@ -173,14 +177,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   
                   // Healing status calculation
                   const healingStatus = (item.status === 'Verified' 
-                    ? item.verifiedResult?.healingStatus 
-                    : item.aiResult?.healingStatus) || 'Stable';
+                    ? item.verifiedResult?.healingStatus
+                    : item.aiResult?.healingStatus) ?? 'Unassessed';
 
                   return (
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="py-3 px-5 font-mono font-medium text-slate-900">{item.patientId}</td>
+                      <td className="py-3 px-5 font-mono font-medium text-slate-900">{wound?.patientId || '-'}</td>
                       <td className="py-3 px-5 font-mono text-slate-600">{item.woundId}</td>
-                      <td className="py-3 px-5">{item.date}</td>
+                      <td className="py-3 px-5">{item.assessmentDate}</td>
                       <td className="py-3 px-5 font-medium text-slate-800">{wound?.location || 'Unspecified'}</td>
                       <td className="py-3 px-5">{getHealingBadge(healingStatus)}</td>
                       <td className="py-3 px-5">{getReviewBadge(item.status)}</td>

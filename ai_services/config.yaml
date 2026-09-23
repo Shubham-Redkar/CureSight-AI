@@ -16,12 +16,12 @@ image_quality:
   min_brightness: 50.0 # grayscale mean — dark.jpg scores 35.6, real wound p5=79.6
   max_brightness: 210.0 # grayscale mean — avoid near-overexposed images
   min_contrast: 25.0 # grayscale std  — low_contrast.jpg scores 19.3
-  min_sharpness: 8.0 # Laplacian var (post pre-blur)  — blurred=1.78, real wound p2=5.8, p5=8.3
+  min_sharpness: 5.0 # Laplacian var (post pre-blur)  — blurred=1.78, real wound p2=5.8, p5=8.3; threshold lowered from 8.0 to 5.0 to stop rejecting the ~3-5% of legitimate wound images that fall between p2 and p5
   max_glare_fraction: 0.20 # fraction of pixels with any channel > 250 — wound tissue has specular highlights; p95=8.6% but some images reach 25%+
   min_saturation: 15.0 # HSV saturation mean — grayscale/near-black images rejected
   max_aspect_ratio: 3.0 # reject extreme panoramic crops (w/h > 3 or h/w > 3)
 
 api_limits:
-  max_upload_size_mb: 10
+  max_upload_size_mb: 20
   max_image_width: 4096
   max_image_height: 4096

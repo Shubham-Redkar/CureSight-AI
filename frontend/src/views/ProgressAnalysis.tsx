@@ -26,19 +26,19 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
   const [customLeftAssId, setCustomLeftAssId] = useState<string>('');
   const [customRightAssId, setCustomRightAssId] = useState<string>('');
 
-  const patientWounds = wounds.filter(w => w.patientId === selectedPatientId);
-  const activeWound = wounds.find(w => w.id === selectedWoundId);
+  const patientWounds = wounds.filter(w => w.patientId === Number(selectedPatientId));
+  const activeWound = wounds.find(w => w.id === Number(selectedWoundId));
 
   // Retrieve assessments for the selected wound sorted chronologically (oldest to newest)
   const woundAssessments = assessments
-    .filter(a => a.woundId === selectedWoundId)
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    .filter(a => a.woundId === Number(selectedWoundId))
+    .sort((a, b) => new Date(a.assessmentDate).getTime() - new Date(b.assessmentDate).getTime());
 
   // Set default comparison IDs when assessments change
   useEffect(() => {
     if (woundAssessments.length >= 2) {
-      setCustomLeftAssId(woundAssessments[0].id);
-      setCustomRightAssId(woundAssessments[woundAssessments.length - 1].id);
+      setCustomLeftAssId(String(woundAssessments[0].id));
+      setCustomRightAssId(String(woundAssessments[woundAssessments.length - 1].id));
     }
   }, [selectedWoundId, assessments]);
 
@@ -54,15 +54,15 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
       leftAssessment = woundAssessments[woundAssessments.length - 2];
       rightAssessment = woundAssessments[woundAssessments.length - 1];
     } else {
-      leftAssessment = woundAssessments.find(a => a.id === customLeftAssId);
-      rightAssessment = woundAssessments.find(a => a.id === customRightAssId);
+      leftAssessment = woundAssessments.find(a => String(a.id) === customLeftAssId);
+      rightAssessment = woundAssessments.find(a => String(a.id) === customRightAssId);
     }
   }
 
   // Calculate trends
-  const getArea = (ass?: Assessment) => {
-    if (!ass) return 0;
-    return ass.verifiedResult ? ass.verifiedResult.measurements.areaCm2 : (ass.aiResult?.measurements.areaCm2 || 0);
+  const getArea = (ass?: Assessment): number | null => {
+    if (!ass) return null;
+    return ass.verifiedResult ? ass.verifiedResult.measurements.areaCm2 : (ass.aiResult?.measurements.areaCm2 ?? null);
   };
 
   const getDims = (ass?: Assessment) => {
@@ -73,9 +73,13 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
 
   const initialArea = getArea(woundAssessments[0]);
   const currentArea = getArea(woundAssessments[woundAssessments.length - 1]);
-  const areaChangePct = initialArea > 0 ? parseFloat((((currentArea - initialArea) / initialArea) * 100).toFixed(1)) : 0;
+  const areaChangePct = (initialArea !== null && currentArea !== null && initialArea > 0) 
+    ? parseFloat((((currentArea - initialArea) / initialArea) * 100).toFixed(1)) 
+    : null;
   
-  const overallTrend = areaChangePct < -10 
+  const overallTrend = areaChangePct === null
+    ? 'Insufficient data'
+    : areaChangePct < -10 
     ? 'Improving' 
     : areaChangePct > 10 
     ? 'Requires Attention' 
@@ -90,16 +94,19 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
     const padding = 30;
 
     // Get max/min areas for scaling
-    const areas = woundAssessments.map(a => getArea(a));
+    const validAssessments = woundAssessments.filter(a => getArea(a) !== null);
+    if (validAssessments.length < 2) return null;
+
+    const areas = validAssessments.map(a => getArea(a) as number);
     const maxArea = Math.max(...areas, 5) * 1.15; // padding top
     const minArea = 0;
 
     // Map assessments to points
-    const points = woundAssessments.map((ass, i) => {
-      const x = padding + (i * (width - 2 * padding)) / (woundAssessments.length - 1);
-      const area = getArea(ass);
+    const points = validAssessments.map((ass, i) => {
+      const x = padding + (i * (width - 2 * padding)) / (validAssessments.length - 1);
+      const area = getArea(ass) as number;
       const y = height - padding - ((area - minArea) * (height - 2 * padding)) / (maxArea - minArea);
-      return { x, y, area, date: ass.date };
+      return { x, y, area, date: ass.assessmentDate };
     });
 
     // Create line path string
@@ -179,12 +186,12 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
           >
             <option value="">-- Choose Anatomical Site --</option>
             {patientWounds.map(w => (
-              <option key={w.id} value={w.id}>{w.location} ({w.type})</option>
+              <option key={w.id} value={w.id}>{w.location} ({w.description || 'N/A'})</option>
             ))}
           </Select>
 
           <div className="text-xs text-slate-400 font-medium pb-1 text-center md:text-right">
-            {activeWound ? `Tracking Classification: ${activeWound.type}` : 'Choose anatomical parameters to trace diagnostics.'}
+            {activeWound ? `Tracking Classification: ${activeWound.description || 'N/A'}` : 'Choose anatomical parameters to trace diagnostics.'}
           </div>
         </div>
       </Card>
@@ -228,12 +235,12 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                   {/* KPI BOXES */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-slate-50 border border-slate-100 rounded-md p-3 text-center">
-                      <div className="text-[10px] text-slate-500 font-semibold uppercase">Initial Area ({woundAssessments[0].date})</div>
-                      <div className="text-xl font-bold text-slate-900 mt-1">{initialArea} cm²</div>
+                      <div className="text-[10px] text-slate-500 font-semibold uppercase">Initial Area ({woundAssessments[0].assessmentDate})</div>
+                      <div className="text-xl font-bold text-slate-900 mt-1">{initialArea !== null ? `${initialArea} cm²` : 'N/A'}</div>
                     </div>
                     <div className="bg-slate-50 border border-slate-100 rounded-md p-3 text-center">
-                      <div className="text-[10px] text-slate-500 font-semibold uppercase">Current Area ({woundAssessments[woundAssessments.length - 1].date})</div>
-                      <div className="text-xl font-bold text-slate-900 mt-1">{currentArea} cm²</div>
+                      <div className="text-[10px] text-slate-500 font-semibold uppercase">Current Area ({woundAssessments[woundAssessments.length - 1].assessmentDate})</div>
+                      <div className="text-xl font-bold text-slate-900 mt-1">{currentArea !== null ? `${currentArea} cm²` : 'N/A'}</div>
                     </div>
                   </div>
 
@@ -241,18 +248,18 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                   <div className="p-4 rounded-lg flex items-center justify-between border border-slate-200 bg-slate-50/50">
                     <div className="flex items-center gap-3">
                       <div className={`p-2 rounded-full border ${
-                        areaChangePct < 0 
+                        (areaChangePct ?? 0) < 0 
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-150' 
-                          : areaChangePct > 0 
+                          : (areaChangePct ?? 0) > 0 
                           ? 'bg-rose-50 text-rose-700 border-rose-150' 
                           : 'bg-blue-50 text-blue-700 border-blue-150'
                       }`}>
-                        {areaChangePct <= 0 ? <TrendingDown className="w-5 h-5" /> : <TrendingUp className="w-5 h-5" />}
+                        {(areaChangePct ?? 0) <= 0 ? <TrendingDown className="w-5 h-5" /> : <TrendingUp className="w-5 h-5" />}
                       </div>
                       <div>
                         <div className="text-2xs font-semibold text-slate-500 uppercase">Longitudinal Area Delta</div>
                         <div className="text-sm font-bold text-slate-900 mt-0.5">
-                          {areaChangePct <= 0 ? '' : '+'}{areaChangePct}%
+                          {areaChangePct !== null ? (areaChangePct <= 0 ? '' : '+') + areaChangePct + '%' : 'N/A'}
                         </div>
                       </div>
                     </div>
@@ -270,7 +277,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                   <div className="bg-teal-50/40 border border-teal-100 rounded-lg p-3.5 text-xs text-slate-655 flex gap-2">
                     <Info className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
                     <div>
-                      Across a span of <strong>{woundAssessments.length} assessments</strong> dating from {woundAssessments[0].date} to {woundAssessments[woundAssessments.length - 1].date}, this {activeWound.type} site has shown a total area reduction of {Math.abs(initialArea - currentArea).toFixed(2)} cm² ({Math.abs(areaChangePct)}%). The wound margins are currently classified as <strong>{overallTrend.toLowerCase()}</strong>.
+                      Across a span of <strong>{woundAssessments.length} assessments</strong> dating from {woundAssessments[0].assessmentDate} to {woundAssessments[woundAssessments.length - 1].assessmentDate}, this {activeWound.description || 'wound'} site has shown a total area reduction of {initialArea !== null && currentArea !== null ? Math.abs(initialArea - currentArea).toFixed(2) : 'N/A'} cm² ({areaChangePct !== null ? Math.abs(areaChangePct) : 'N/A'}%). The wound margins are currently classified as <strong>{overallTrend.toLowerCase()}</strong>.
                     </div>
                   </div>
                 </div>
@@ -297,7 +304,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
               {woundAssessments.map((item) => {
                 const area = getArea(item);
                 const isVerified = item.status === 'Verified';
-                const status = isVerified ? item.verifiedResult?.healingStatus : (item.aiResult?.healingStatus || 'Stable');
+                const status = isVerified ? item.verifiedResult?.healingStatus : (item.aiResult?.healingStatus ?? 'Unavailable');
 
                 return (
                   <div
@@ -305,9 +312,9 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                     className="min-w-[170px] max-w-[170px] border border-slate-200 rounded-lg bg-white overflow-hidden shadow-2xs snap-start flex flex-col justify-between shrink-0"
                   >
                     <div className="relative h-28 bg-slate-900 flex items-center justify-center">
-                      <img src={item.imageUrl} alt={item.date} className="h-full w-auto object-cover" />
+                      <img src={item.imageUrl} alt={item.assessmentDate} className="h-full w-auto object-cover" />
                       <div className="absolute top-2 left-2 bg-slate-900/60 text-white font-mono text-[9px] px-1.5 py-0.5 rounded">
-                        {item.date}
+                        {item.assessmentDate}
                       </div>
                     </div>
                     <div className="p-3 text-xs space-y-1.5">
@@ -355,7 +362,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                   onChange={e => setCustomLeftAssId(e.target.value)}
                 >
                   {woundAssessments.map(a => (
-                    <option key={a.id} value={a.id}>{a.date} (Record: {a.id})</option>
+                    <option key={a.id} value={a.id}>{a.assessmentDate} (Record: {a.id})</option>
                   ))}
                 </Select>
                 <Select
@@ -364,7 +371,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                   onChange={e => setCustomRightAssId(e.target.value)}
                 >
                   {woundAssessments.map(a => (
-                    <option key={a.id} value={a.id}>{a.date} (Record: {a.id})</option>
+                    <option key={a.id} value={a.id}>{a.assessmentDate} (Record: {a.id})</option>
                   ))}
                 </Select>
               </div>
@@ -376,7 +383,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                 {/* LEFT FRAME */}
                 <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-900">
                   <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center text-xs">
-                    <span className="font-semibold text-slate-800">Frame A: {leftAssessment.date}</span>
+                    <span className="font-semibold text-slate-800">Frame A: {leftAssessment.assessmentDate}</span>
                     <Badge variant={leftAssessment.status === 'Verified' ? 'verified' : 'pending'}>
                       {leftAssessment.status === 'Verified' ? 'Verified' : 'AI Assessment'}
                     </Badge>
@@ -393,7 +400,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                 {/* RIGHT FRAME */}
                 <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-900">
                   <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center text-xs">
-                    <span className="font-semibold text-slate-800">Frame B: {rightAssessment.date}</span>
+                    <span className="font-semibold text-slate-800">Frame B: {rightAssessment.assessmentDate}</span>
                     <Badge variant={rightAssessment.status === 'Verified' ? 'verified' : 'pending'}>
                       {rightAssessment.status === 'Verified' ? 'Verified' : 'AI Assessment'}
                     </Badge>

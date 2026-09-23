@@ -12,6 +12,20 @@ import {
 } from 'lucide-react';
 import type { Measurement } from '../types';
 
+const formatMeasurement = (value: number | null | undefined, decimals = 2) => {
+  if (value === null || value === undefined || isNaN(Number(value))) {
+    return 'N/A';
+  }
+  return Number(value).toFixed(decimals);
+};
+
+const formatConfidence = (value: number | null | undefined) => {
+  if (value === null || value === undefined || isNaN(Number(value))) {
+    return 'Not available';
+  }
+  return `${Math.round(Number(value) * 100)}%`;
+};
+
 interface WoundAssessmentProps {
   selectedPatientId: string | null;
   setSelectedPatientId: (id: string | null) => void;
@@ -35,7 +49,6 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
     patients,
     wounds,
     assessments,
-    addAssessment,
     runAnalysis,
     verifyAssessment,
   } = useWounds();
@@ -43,14 +56,15 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
   // Workflow steps: 'select' | 'upload' | 'analysis'
   const [currentStep, setCurrentStep] = useState<'select' | 'upload' | 'analysis'>('select');
 
-  // Image upload states
-  const [imageFile, setImageFile] = useState<string | null>(null);
+  // Local UI states
   const [dragActive, setDragActive] = useState(false);
+  const [imageFile, setImageFile] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Simulation loading states
   const [analysisProgress, setAnalysisProgress] = useState<string>('');
   const [_analysisStep, setAnalysisStep] = useState(0);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
   // Active overlays on analyzed image
   const [showYoloBox, setShowYoloBox] = useState(true);
@@ -59,22 +73,43 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
 
   // Verification Form states
   const [clinicalNotes, setClinicalNotes] = useState('');
-  const [verifiedHealingStatus, setVerifiedHealingStatus] = useState<'Improving' | 'Stable' | 'Requires Attention'>('Stable');
+  const [verifiedHealingStatus, setVerifiedHealingStatus] = useState<'Improving' | 'Stable' | 'Requires Attention' | 'Unavailable' | 'Insufficient historical data' | ''>('');
+  
+  // Calibration state
+  const [pixelsPerCm, setPixelsPerCm] = useState<string>('');
   
   // Track modified measurements manually
   const [verifiedMeasurements, setVerifiedMeasurements] = useState<Measurement>({
-    areaCm2: 0,
-    lengthCm: 0,
-    widthCm: 0,
-    granulationTissuePct: 0,
-    sloughTissuePct: 0,
-    escharTissuePct: 0,
+    areaCm2: null,
+    lengthCm: null,
+    widthCm: null,
+    granulationTissuePct: null,
+    sloughTissuePct: null,
+    escharTissuePct: null,
   });
 
-  const activePatient = patients.find(p => p.id === selectedPatientId);
-  const patientWounds = wounds.filter(w => w.patientId === selectedPatientId);
-  const activeWound = wounds.find(w => w.id === selectedWoundId);
-  const activeAssessment = assessments.find(a => a.id === selectedAssessmentId);
+  const activePatient = patients.find(p => p.id === Number(selectedPatientId));
+  const patientWounds = wounds.filter(w => w.patientId === Number(selectedPatientId));
+  const activeWound = wounds.find(w => w.id === Number(selectedWoundId));
+  const activeAssessment = assessments.find(a => a.id === Number(selectedAssessmentId));
+
+  // Clear assessment specific local states when a new one is selected or resetting
+  useEffect(() => {
+    if (!selectedAssessmentId) {
+      setVerifiedMeasurements({
+        areaCm2: null,
+        lengthCm: null,
+        widthCm: null,
+        granulationTissuePct: null,
+        sloughTissuePct: null,
+        escharTissuePct: null,
+      });
+      setVerifiedHealingStatus('');
+      setClinicalNotes('');
+      setAnalysisStep(-1);
+      setAnalysisProgress('');
+    }
+  }, [selectedAssessmentId]);
 
   // Synchronize state when selectedAssessmentId changes
   useEffect(() => {
@@ -87,7 +122,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
       } else if (activeAssessment.aiResult) {
         // Initialize verified form with AI findings
         setVerifiedMeasurements(activeAssessment.aiResult.measurements);
-        setVerifiedHealingStatus(activeAssessment.aiResult.healingStatus);
+        setVerifiedHealingStatus(activeAssessment.aiResult.healingStatus || 'Unavailable');
         setClinicalNotes('');
       }
     } else {
@@ -145,58 +180,38 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
     }
   };
 
-  // Generate a mock clinical image in case user has no image file
-  const handleUseMockImage = () => {
-    // A clean SVG base64 representing a generic diabetic ulcer or pressure wound structure for visual demo
-    const svgMock = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="500" height="400" viewBox="0 0 500 400"><rect width="500" height="400" fill="%23f8fafc"/><path d="M150 150 C 180 120, 320 110, 350 160 C 370 200, 330 290, 270 300 C 200 310, 120 280, 130 210 C 135 180, 130 170, 150 150 Z" fill="%23ffd5d5" stroke="%23fda4af" stroke-width="2"/><path d="M180 180 C 200 160, 290 150, 310 190 C 320 220, 290 260, 250 270 C 200 280, 160 250, 170 210 Z" fill="%23f43f5e" fill-opacity="0.75" stroke="%23e11d48" stroke-width="1.5"/><circle cx="210" cy="220" r="15" fill="%23cbd5e1" fill-opacity="0.85"/><circle cx="280" cy="200" r="25" fill="%23fef08a" fill-opacity="0.85"/><text x="20" y="30" font-family="sans-serif" font-size="12" fill="%2364748b">Anatomical Background Skin Model</text></svg>`;
-    setImageFile(svgMock);
-  };
+  // Image use logic
 
-  const handleCreateAssessment = () => {
+  const handleProceedToAnalysis = () => {
     if (selectedPatientId && selectedWoundId && imageFile) {
-      const newAss = addAssessment({
-        patientId: selectedPatientId,
-        woundId: selectedWoundId,
-        imageUrl: imageFile,
-      });
-      setSelectedAssessmentId(newAss.id);
+      setCurrentStep('analysis');
     }
   };
 
   // Run AI analysis pipeline
   const handleStartAnalysis = async () => {
-    if (!selectedAssessmentId) return;
+    if (!selectedWoundId || !imageFile) return;
 
-    // Simulate clinical engine logging
-    const steps = [
-      'Initializing ML Diagnostics Platform...',
-      'Step 1/3: Running YOLO v8 Anatomical Boundary Localizer...',
-      'Locating wound bounding box on epidermal field...',
-      'Step 2/3: Launching U-Net Tissue Segmentation Model...',
-      'Segmenting granulation (red), slough (yellow), and eschar (gray) tissue pixels...',
-      'Step 3/3: Running OpenCV Feature Calibration...',
-      'Fitting contour vectors and converting pixels to square centimeters...',
-      'Analysis complete. Generating decision-support diagnostic records.'
-    ];
+    setAnalysisProgress('Running AI Pipeline...');
+    setIsLoading(true);
 
-    setAnalysisStep(0);
-    setAnalysisProgress(steps[0]);
+    const calibrationValue = pixelsPerCm && !isNaN(parseFloat(pixelsPerCm)) && parseFloat(pixelsPerCm) > 0 
+      ? parseFloat(pixelsPerCm) 
+      : undefined;
 
-    const interval = setInterval(() => {
-      setAnalysisStep(prev => {
-        const next = prev + 1;
-        if (next < steps.length) {
-          setAnalysisProgress(steps[next]);
-          return next;
-        } else {
-          clearInterval(interval);
-          return prev;
-        }
-      });
-    }, 300);
-
-    await runAnalysis(selectedAssessmentId);
-    clearInterval(interval);
+    try {
+      const res = await fetch(imageFile);
+      const rawBlob = await res.blob();
+      
+      setAnalysisProgress('Running AI Pipeline...');
+      const newAss = await runAnalysis(selectedWoundId, rawBlob, calibrationValue);
+      setSelectedAssessmentId(String(newAss.id));
+      setAnalysisProgress('Analysis complete.');
+    } catch (err: any) {
+      setAnalysisProgress(`Error: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Submit clinician verification
@@ -206,7 +221,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
       verifyAssessment(selectedAssessmentId, {
         verifiedDate: new Date().toISOString().split('T')[0],
         measurements: verifiedMeasurements,
-        healingStatus: verifiedHealingStatus,
+        healingStatus: verifiedHealingStatus as any,
         clinicalNotes: clinicalNotes.trim(),
       });
     }
@@ -219,7 +234,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
       verifyAssessment(selectedAssessmentId!, {
         verifiedDate: new Date().toISOString().split('T')[0],
         measurements: ai.measurements,
-        healingStatus: ai.healingStatus,
+        healingStatus: ai.healingStatus === 'Unavailable' || ai.healingStatus === 'Insufficient historical data' ? 'Unavailable' : ai.healingStatus,
         clinicalNotes: 'AI assessment accepted in full after clinical review.',
       });
     }
@@ -251,7 +266,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                 <option value="">-- Choose Patient ID --</option>
                 {patients.map(p => (
                   <option key={p.id} value={p.id}>
-                    {p.id} ({p.gender}, DOB: {p.birthDate})
+                    {p.patientCode} ({p.name})
                   </option>
                 ))}
               </Select>
@@ -265,7 +280,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                 <option value="">-- Choose Anatomical Site --</option>
                 {patientWounds.map(w => (
                   <option key={w.id} value={w.id}>
-                    {w.location} ({w.type})
+                    {w.location} ({w.description || 'N/A'})
                   </option>
                 ))}
               </Select>
@@ -345,16 +360,6 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                       accept="image/*"
                       className="hidden"
                     />
-                    <span className="text-2xs text-slate-400 font-medium">or</span>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={handleUseMockImage}
-                      className="cursor-pointer text-xs flex items-center gap-1.5 text-teal-850 hover:bg-teal-50"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      Use Practice Sample
-                    </Button>
                   </div>
                 </div>
               ) : (
@@ -390,8 +395,8 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                     >
                       Back
                     </Button>
-                    <Button onClick={handleCreateAssessment} className="cursor-pointer">
-                      Create Assessment Entry
+                    <Button onClick={handleProceedToAnalysis} className="cursor-pointer">
+                      Proceed to Analysis
                     </Button>
                   </div>
                 </div>
@@ -439,7 +444,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
       )}
 
       {/* STEP 3: PIPELINE EXECUTION & VERIFICATION */}
-      {currentStep === 'analysis' && activePatient && activeWound && activeAssessment && (
+      {currentStep === 'analysis' && activePatient && activeWound && (
         <div className="space-y-6">
           {/* BACK TO SELECTION BUTTON */}
           <div className="flex justify-between items-center">
@@ -456,21 +461,25 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
               New Assessment
             </Button>
             <div className="flex gap-2 text-xs">
-              <span className="font-mono text-slate-500">Record: {activeAssessment.id}</span>
-              <span className="text-slate-400">|</span>
+              {activeAssessment && (
+                <>
+                  <span className="font-mono text-slate-500">Record: {activeAssessment.id}</span>
+                  <span className="text-slate-400">|</span>
+                </>
+              )}
               <span className="font-mono text-slate-500">Patient: {activePatient.id}</span>
               <span className="text-slate-400">|</span>
               <span className="font-mono text-slate-500">Location: {activeWound.location}</span>
             </div>
           </div>
 
-          {/* AI RUNNING LOADER */}
-          {activeAssessment.status === 'Pending Analysis' && (
+          {/* AI RUNNING LOADER & TRIGGER */}
+          {!activeAssessment && (
             <Card className="max-w-xl mx-auto py-12 text-center">
               <div className="flex flex-col items-center justify-center space-y-4">
                 <div className="relative">
-                  <div className="w-14 h-14 border-4 border-slate-200 border-t-teal-700 rounded-full animate-spin"></div>
-                  <Sparkles className="w-6 h-6 text-teal-700 absolute inset-0 m-auto animate-pulse" />
+                  <div className={`w-14 h-14 border-4 border-slate-200 border-t-teal-700 rounded-full ${isLoading ? 'animate-spin' : ''}`}></div>
+                  <Sparkles className={`w-6 h-6 text-teal-700 absolute inset-0 m-auto ${isLoading ? 'animate-pulse' : ''}`} />
                 </div>
                 <div>
                   <h3 className="font-semibold text-slate-800 text-sm">Processing Wound Architecture</h3>
@@ -484,18 +493,37 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                     <div>{analysisProgress}</div>
                   </div>
                 )}
+                
+                {/* Calibration Input */}
+                <div className="w-full max-w-xs mt-4 text-left space-y-1.5">
+                  <Input
+                    label="Pixels per cm (Calibration)"
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    placeholder="e.g. 45.5"
+                    value={pixelsPerCm}
+                    onChange={(e) => setPixelsPerCm(e.target.value)}
+                    disabled={isLoading}
+                  />
+                  <p className="text-2xs text-slate-400 leading-tight">
+                    Required for physical cm measurements. Without calibration, physical measurements may be unavailable.
+                  </p>
+                </div>
+
                 <Button
                   onClick={handleStartAnalysis}
+                  disabled={isLoading}
                   className="mt-2 bg-teal-700 text-white cursor-pointer"
                 >
-                  Start Diagnostic Analysis
+                  {isLoading ? 'Running...' : 'Start Diagnostic Analysis'}
                 </Button>
               </div>
             </Card>
           )}
 
-          {/* ANALYSIS COMPLETED / VERIFIED DISPLAY */}
-          {(activeAssessment.status === 'Analysis Completed' || activeAssessment.status === 'Verified') && (
+          {/* ANALYSIS COMPLETED / VERIFIED / FAILED DISPLAY */}
+          {activeAssessment && (activeAssessment.status === 'Analysis Completed' || activeAssessment.status === 'Verified' || activeAssessment.status === 'Analysis Failed') && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               
               {/* IMAGE DISPLAY PANEL (7/12 cols) */}
@@ -533,96 +561,25 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                 >
                   <div className="relative border border-slate-250 bg-slate-900 rounded-lg overflow-hidden flex items-center justify-center" style={{ minHeight: '380px' }}>
                     <img
-                      src={activeAssessment.imageUrl}
+                      src={activeAssessment.analyzedImageUrl || activeAssessment.imageUrl}
                       alt="Clinical Assessment"
                       className="max-w-full h-auto max-h-[450px] object-contain"
                     />
-
-                    {/* DYNAMIC SVG OVERLAY (Simulating ML Bounding Box and Segments) */}
-                    <svg
-                      className="absolute inset-0 w-full h-full pointer-events-none"
-                      viewBox="0 0 500 400"
-                      preserveAspectRatio="none"
-                    >
-                      {/* YOLO bounding box overlay */}
-                      {showYoloBox && (
-                        <>
-                          <rect
-                            x="110"
-                            y="100"
-                            width="280"
-                            height="230"
-                            fill="none"
-                            stroke="#0284c7"
-                            strokeWidth="2"
-                            strokeDasharray="4 4"
-                          />
-                          <rect
-                            x="110"
-                            y="78"
-                            width="110"
-                            height="22"
-                            fill="#0284c7"
-                          />
-                          <text x="115" y="93" fill="white" fontSize="10" fontFamily="monospace" fontWeight="bold">
-                            YOLO: Wound ({Math.round((activeAssessment.aiResult?.detectionConfidence || 0.94) * 100)}%)
-                          </text>
-                        </>
-                      )}
-
-                      {/* U-Net segmentation mask overlay */}
-                      {showUnetMask && (
-                        <>
-                          {/* Granulation Tissue: Red */}
-                          <path
-                            d="M 180 180 C 200 160, 290 150, 310 190 C 320 220, 290 260, 250 270 C 200 280, 160 250, 170 210 Z"
-                            fill="rgba(239, 68, 68, 0.4)"
-                            stroke="rgba(239, 68, 68, 0.8)"
-                            strokeWidth="1.5"
-                          />
-                          {/* Slough Tissue: Yellow */}
-                          <circle cx="280" cy="200" r="22" fill="rgba(234, 179, 8, 0.45)" stroke="rgba(234, 179, 8, 0.8)" strokeWidth="1" />
-                          {/* Eschar Tissue: Gray/Black */}
-                          <circle cx="210" cy="220" r="14" fill="rgba(100, 116, 139, 0.55)" stroke="rgba(100, 116, 139, 0.8)" strokeWidth="1" />
-                        </>
-                      )}
-
-                      {/* Measurements crosshair/ruler */}
-                      {showMeasurements && activeAssessment.aiResult && (
-                        <>
-                          {/* Width Ruler line */}
-                          <line x1="165" y1="210" x2="315" y2="210" stroke="#14b8a6" strokeWidth="1.5" />
-                          <circle cx="165" cy="210" r="3" fill="#14b8a6" />
-                          <circle cx="315" cy="210" r="3" fill="#14b8a6" />
-                          <text x="210" y="202" fill="#14b8a6" fontSize="10" fontFamily="sans-serif" fontWeight="bold" className="bg-slate-900">
-                            W: {activeAssessment.aiResult.measurements.widthCm}cm
-                          </text>
-
-                          {/* Length Ruler line */}
-                          <line x1="240" y1="150" x2="240" y2="270" stroke="#06b6d4" strokeWidth="1.5" />
-                          <circle cx="240" cy="150" r="3" fill="#06b6d4" />
-                          <circle cx="240" cy="270" r="3" fill="#06b6d4" />
-                          <text x="245" y="215" fill="#06b6d4" fontSize="10" fontFamily="sans-serif" fontWeight="bold">
-                            L: {activeAssessment.aiResult.measurements.lengthCm}cm
-                          </text>
-                        </>
-                      )}
-                    </svg>
                   </div>
                   
                   {/* TISSUE MAP LEGEND */}
                   <div className="flex gap-4 mt-3 bg-slate-50 p-2.5 rounded-md border border-slate-200 text-2xs justify-center font-medium">
                     <span className="flex items-center gap-1.5">
                       <span className="w-3 h-3 rounded-sm bg-red-500/40 border border-red-500"></span>
-                      Granulation ({activeAssessment.aiResult?.measurements.granulationTissuePct}%)
+                      Granulation ({activeAssessment.aiResult?.measurements.granulationTissuePct ?? 'Not available'})
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="w-3 h-3 rounded-sm bg-yellow-500/40 border border-yellow-500"></span>
-                      Slough ({activeAssessment.aiResult?.measurements.sloughTissuePct}%)
+                      Slough ({activeAssessment.aiResult?.measurements.sloughTissuePct ?? 'Not available'})
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="w-3 h-3 rounded-sm bg-slate-500/40 border border-slate-500"></span>
-                      Eschar/Necrotic ({activeAssessment.aiResult?.measurements.escharTissuePct}%)
+                      Eschar/Necrotic ({activeAssessment.aiResult?.measurements.escharTissuePct ?? 'Not available'})
                     </span>
                   </div>
                 </Card>
@@ -633,26 +590,43 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                 
                 {/* AI FINDINGS PANEL */}
                 <Card title="AI Diagnostics Panel (YOLO/U-Net)">
-                  {activeAssessment.aiResult ? (
+                  {activeAssessment.status === 'Analysis Failed' ? (
+                    <div className="text-center py-6 text-red-600 bg-red-50 border border-red-200 rounded-md">
+                      <div className="font-bold text-sm mb-1">Analysis failed</div>
+                      <div className="text-xs">{activeAssessment.error || 'Image upload failed. Please retry the analysis.'}</div>
+                    </div>
+                  ) : activeAssessment.aiResult ? (
                     <div className="space-y-4">
                       {/* STATS PANEL */}
                       <div className="grid grid-cols-3 gap-2.5">
-                        <div className="bg-slate-50 border border-slate-100 rounded-md p-2.5 text-center">
+                        <div className="bg-slate-50 border border-slate-100 rounded-md p-2.5 text-center flex flex-col justify-center">
                           <div className="text-[10px] text-slate-500 font-semibold uppercase">Wound Area</div>
-                          <div className="text-base font-bold text-slate-900 mt-0.5">
-                            {activeAssessment.aiResult.measurements.areaCm2} <span className="text-2xs font-normal">cm²</span>
+                          <div className="text-sm font-bold text-slate-900 mt-0.5">
+                            {activeAssessment.aiResult.measurements.areaCm2 !== null ? (
+                              <>{formatMeasurement(activeAssessment.aiResult.measurements.areaCm2)} <span className="text-2xs font-normal">cm²</span></>
+                            ) : (
+                              <span className="text-xs font-normal text-slate-500">Not available</span>
+                            )}
                           </div>
                         </div>
-                        <div className="bg-slate-50 border border-slate-100 rounded-md p-2.5 text-center">
+                        <div className="bg-slate-50 border border-slate-100 rounded-md p-2.5 text-center flex flex-col justify-center">
                           <div className="text-[10px] text-slate-500 font-semibold uppercase">Dimensions</div>
                           <div className="text-xs font-bold text-slate-900 mt-1">
-                            {activeAssessment.aiResult.measurements.lengthCm} × {activeAssessment.aiResult.measurements.widthCm} <span className="text-[9px] font-normal">cm</span>
+                            {activeAssessment.aiResult.measurements.lengthCm !== null && activeAssessment.aiResult.measurements.widthCm !== null ? (
+                              <>{formatMeasurement(activeAssessment.aiResult.measurements.lengthCm)} × {formatMeasurement(activeAssessment.aiResult.measurements.widthCm)} <span className="text-[9px] font-normal">cm</span></>
+                            ) : (
+                              <span className="font-normal text-slate-500">Not available</span>
+                            )}
                           </div>
                         </div>
-                        <div className="bg-slate-50 border border-slate-100 rounded-md p-2.5 text-center">
+                        <div className="bg-slate-50 border border-slate-100 rounded-md p-2.5 text-center flex flex-col justify-center">
                           <div className="text-[10px] text-slate-500 font-semibold uppercase">Confidence</div>
-                          <div className="text-base font-bold text-teal-700 mt-0.5">
-                            {Math.round(activeAssessment.aiResult.detectionConfidence * 100)}%
+                          <div className="text-sm font-bold text-teal-700 mt-0.5">
+                            {activeAssessment.aiResult.detectionConfidence !== null ? (
+                              <>{formatConfidence(activeAssessment.aiResult.detectionConfidence)}</>
+                            ) : (
+                              <span className="font-normal text-slate-500 text-xs">Not available</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -707,13 +681,13 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                         <div className="flex justify-between py-1 border-b border-slate-100">
                           <span className="text-slate-500">Verified Wound Area:</span>
                           <span className="font-semibold text-slate-800">
-                            {activeAssessment.verifiedResult?.measurements.areaCm2} cm²
+                            {formatMeasurement(activeAssessment.verifiedResult?.measurements?.areaCm2)} cm²
                           </span>
                         </div>
                         <div className="flex justify-between py-1 border-b border-slate-100">
                           <span className="text-slate-500">Verified Dimensions:</span>
                           <span className="font-semibold text-slate-800">
-                            {activeAssessment.verifiedResult?.measurements.lengthCm} × {activeAssessment.verifiedResult?.measurements.widthCm} cm
+                            {formatMeasurement(activeAssessment.verifiedResult?.measurements?.lengthCm)} × {formatMeasurement(activeAssessment.verifiedResult?.measurements?.widthCm)} cm
                           </span>
                         </div>
                       </div>
@@ -724,6 +698,14 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                           "{activeAssessment.verifiedResult?.clinicalNotes || 'No notes added.'}"
                         </p>
                       </div>
+                    </div>
+                  ) : activeAssessment.status === 'Analysis Failed' ? (
+                    <div className="bg-slate-50 border border-slate-200 rounded-md p-4 text-center">
+                      <AlertCircle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                      <p className="text-sm font-medium text-slate-600">AI analysis is unavailable</p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Run a successful wound analysis before reviewing or submitting AI-derived measurements.
+                      </p>
                     </div>
                   ) : (
                     /* EDIT VERIFICATION FORM */
@@ -739,10 +721,10 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                             label="Verified Area (cm²)"
                             type="number"
                             step="0.01"
-                            value={verifiedMeasurements.areaCm2}
+                            value={verifiedMeasurements.areaCm2 ?? ''}
                             onChange={e => setVerifiedMeasurements({
                               ...verifiedMeasurements,
-                              areaCm2: parseFloat(e.target.value) || 0
+                              areaCm2: e.target.value === '' ? null : parseFloat(e.target.value)
                             })}
                             required
                           />
@@ -751,6 +733,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                             value={verifiedHealingStatus}
                             onChange={e => setVerifiedHealingStatus(e.target.value as any)}
                           >
+                            <option value="" disabled>Select status...</option>
                             <option value="Improving">Improving</option>
                             <option value="Stable">Stable</option>
                             <option value="Requires Attention">Requires Attention</option>
@@ -762,10 +745,10 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                             label="Verified Length (cm)"
                             type="number"
                             step="0.1"
-                            value={verifiedMeasurements.lengthCm}
+                            value={verifiedMeasurements.lengthCm ?? ''}
                             onChange={e => setVerifiedMeasurements({
                               ...verifiedMeasurements,
-                              lengthCm: parseFloat(e.target.value) || 0
+                              lengthCm: e.target.value === '' ? null : parseFloat(e.target.value)
                             })}
                             required
                           />
@@ -773,10 +756,10 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                             label="Verified Width (cm)"
                             type="number"
                             step="0.1"
-                            value={verifiedMeasurements.widthCm}
+                            value={verifiedMeasurements.widthCm ?? ''}
                             onChange={e => setVerifiedMeasurements({
                               ...verifiedMeasurements,
-                              widthCm: parseFloat(e.target.value) || 0
+                              widthCm: e.target.value === '' ? null : parseFloat(e.target.value)
                             })}
                             required
                           />
@@ -788,10 +771,10 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                             type="number"
                             max="100"
                             min="0"
-                            value={verifiedMeasurements.granulationTissuePct}
+                            value={verifiedMeasurements.granulationTissuePct ?? ''}
                             onChange={e => setVerifiedMeasurements({
                               ...verifiedMeasurements,
-                              granulationTissuePct: parseInt(e.target.value) || 0
+                              granulationTissuePct: e.target.value === '' ? null : parseInt(e.target.value)
                             })}
                           />
                           <Input
@@ -799,10 +782,10 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                             type="number"
                             max="100"
                             min="0"
-                            value={verifiedMeasurements.sloughTissuePct}
+                            value={verifiedMeasurements.sloughTissuePct ?? ''}
                             onChange={e => setVerifiedMeasurements({
                               ...verifiedMeasurements,
-                              sloughTissuePct: parseInt(e.target.value) || 0
+                              sloughTissuePct: e.target.value === '' ? null : parseInt(e.target.value)
                             })}
                           />
                           <Input
@@ -810,10 +793,10 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                             type="number"
                             max="100"
                             min="0"
-                            value={verifiedMeasurements.escharTissuePct}
+                            value={verifiedMeasurements.escharTissuePct ?? ''}
                             onChange={e => setVerifiedMeasurements({
                               ...verifiedMeasurements,
-                              escharTissuePct: parseInt(e.target.value) || 0
+                              escharTissuePct: e.target.value === '' ? null : parseInt(e.target.value)
                             })}
                           />
                         </div>

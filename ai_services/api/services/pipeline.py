@@ -91,6 +91,26 @@ class MLPipeline:
                 "reasons": iq_result["reasons"]
             }
             
+        # 1.6 Resize if necessary after quality validation
+        limits = getattr(cfg, "api_limits", None)
+        max_w = getattr(limits, "max_image_width", 4096) if limits else 4096
+        max_h = getattr(limits, "max_image_height", 4096) if limits else 4096
+        
+        orig_w = iq_result["width"]
+        orig_h = iq_result["height"]
+        
+        if orig_w > max_w or orig_h > max_h:
+            img = cv2.imread(image_path)
+            if orig_w > orig_h:
+                new_h = round((orig_h * max_w) / orig_w)
+                new_w = max_w
+            else:
+                new_w = round((orig_w * max_h) / orig_h)
+                new_h = max_h
+                
+            resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            cv2.imwrite(image_path, resized)
+            
         # 1. Wound Gate
         if self.wound_gate.required and not self.wound_gate.is_loaded:
             return {"status": "error", "error_code": "MODELS_NOT_LOADED", "message": "Wound Gate model required but not loaded."}

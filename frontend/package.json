@@ -10,8 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@oxlint/binding-win32-x64-msvc": "^1.80.0",
-    "@rolldown/binding-win32-x64-msvc": "^1.2.6",
     "lucide-react": "^1.37.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

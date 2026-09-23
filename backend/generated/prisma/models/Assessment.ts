@@ -9,8 +9,8 @@
  * 🟢 You can import this file directly.
  */
 import type * as runtime from "@prisma/client/runtime/client"
-import type * as $Enums from "../enums.js"
-import type * as Prisma from "../internal/prismaNamespace.js"
+import type * as $Enums from "../enums.ts"
+import type * as Prisma from "../internal/prismaNamespace.ts"
 
 /**
  * Model Assessment
@@ -41,6 +41,8 @@ export type AssessmentMinAggregateOutputType = {
   woundId: number | null
   assessmentDate: Date | null
   imageKey: string | null
+  annotatedImageKey: string | null
+  woundDetected: boolean | null
   notes: string | null
   status: string | null
   createdAt: Date | null
@@ -51,6 +53,8 @@ export type AssessmentMaxAggregateOutputType = {
   woundId: number | null
   assessmentDate: Date | null
   imageKey: string | null
+  annotatedImageKey: string | null
+  woundDetected: boolean | null
   notes: string | null
   status: string | null
   createdAt: Date | null
@@ -61,6 +65,9 @@ export type AssessmentCountAggregateOutputType = {
   woundId: number
   assessmentDate: number
   imageKey: number
+  annotatedImageKey: number
+  measurements: number
+  woundDetected: number
   notes: number
   status: number
   createdAt: number
@@ -83,6 +90,8 @@ export type AssessmentMinAggregateInputType = {
   woundId?: true
   assessmentDate?: true
   imageKey?: true
+  annotatedImageKey?: true
+  woundDetected?: true
   notes?: true
   status?: true
   createdAt?: true
@@ -93,6 +102,8 @@ export type AssessmentMaxAggregateInputType = {
   woundId?: true
   assessmentDate?: true
   imageKey?: true
+  annotatedImageKey?: true
+  woundDetected?: true
   notes?: true
   status?: true
   createdAt?: true
@@ -103,6 +114,9 @@ export type AssessmentCountAggregateInputType = {
   woundId?: true
   assessmentDate?: true
   imageKey?: true
+  annotatedImageKey?: true
+  measurements?: true
+  woundDetected?: true
   notes?: true
   status?: true
   createdAt?: true
@@ -200,6 +214,9 @@ export type AssessmentGroupByOutputType = {
   woundId: number
   assessmentDate: Date
   imageKey: string | null
+  annotatedImageKey: string | null
+  measurements: runtime.JsonValue | null
+  woundDetected: boolean | null
   notes: string | null
   status: string
   createdAt: Date
@@ -233,6 +250,9 @@ export type AssessmentWhereInput = {
   woundId?: Prisma.IntFilter<"Assessment"> | number
   assessmentDate?: Prisma.DateTimeFilter<"Assessment"> | Date | string
   imageKey?: Prisma.StringNullableFilter<"Assessment"> | string | null
+  annotatedImageKey?: Prisma.StringNullableFilter<"Assessment"> | string | null
+  measurements?: Prisma.JsonNullableFilter<"Assessment">
+  woundDetected?: Prisma.BoolNullableFilter<"Assessment"> | boolean | null
   notes?: Prisma.StringNullableFilter<"Assessment"> | string | null
   status?: Prisma.StringFilter<"Assessment"> | string
   createdAt?: Prisma.DateTimeFilter<"Assessment"> | Date | string
@@ -244,6 +264,9 @@ export type AssessmentOrderByWithRelationInput = {
   woundId?: Prisma.SortOrder
   assessmentDate?: Prisma.SortOrder
   imageKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  annotatedImageKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  measurements?: Prisma.SortOrderInput | Prisma.SortOrder
+  woundDetected?: Prisma.SortOrderInput | Prisma.SortOrder
   notes?: Prisma.SortOrderInput | Prisma.SortOrder
   status?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -258,6 +281,9 @@ export type AssessmentWhereUniqueInput = Prisma.AtLeast<{
   woundId?: Prisma.IntFilter<"Assessment"> | number
   assessmentDate?: Prisma.DateTimeFilter<"Assessment"> | Date | string
   imageKey?: Prisma.StringNullableFilter<"Assessment"> | string | null
+  annotatedImageKey?: Prisma.StringNullableFilter<"Assessment"> | string | null
+  measurements?: Prisma.JsonNullableFilter<"Assessment">
+  woundDetected?: Prisma.BoolNullableFilter<"Assessment"> | boolean | null
   notes?: Prisma.StringNullableFilter<"Assessment"> | string | null
   status?: Prisma.StringFilter<"Assessment"> | string
   createdAt?: Prisma.DateTimeFilter<"Assessment"> | Date | string
@@ -269,6 +295,9 @@ export type AssessmentOrderByWithAggregationInput = {
   woundId?: Prisma.SortOrder
   assessmentDate?: Prisma.SortOrder
   imageKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  annotatedImageKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  measurements?: Prisma.SortOrderInput | Prisma.SortOrder
+  woundDetected?: Prisma.SortOrderInput | Prisma.SortOrder
   notes?: Prisma.SortOrderInput | Prisma.SortOrder
   status?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -287,6 +316,9 @@ export type AssessmentScalarWhereWithAggregatesInput = {
   woundId?: Prisma.IntWithAggregatesFilter<"Assessment"> | number
   assessmentDate?: Prisma.DateTimeWithAggregatesFilter<"Assessment"> | Date | string
   imageKey?: Prisma.StringNullableWithAggregatesFilter<"Assessment"> | string | null
+  annotatedImageKey?: Prisma.StringNullableWithAggregatesFilter<"Assessment"> | string | null
+  measurements?: Prisma.JsonNullableWithAggregatesFilter<"Assessment">
+  woundDetected?: Prisma.BoolNullableWithAggregatesFilter<"Assessment"> | boolean | null
   notes?: Prisma.StringNullableWithAggregatesFilter<"Assessment"> | string | null
   status?: Prisma.StringWithAggregatesFilter<"Assessment"> | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Assessment"> | Date | string
@@ -295,6 +327,9 @@ export type AssessmentScalarWhereWithAggregatesInput = {
 export type AssessmentCreateInput = {
   assessmentDate?: Date | string
   imageKey?: string | null
+  annotatedImageKey?: string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: boolean | null
   notes?: string | null
   status?: string
   createdAt?: Date | string
@@ -306,6 +341,9 @@ export type AssessmentUncheckedCreateInput = {
   woundId: number
   assessmentDate?: Date | string
   imageKey?: string | null
+  annotatedImageKey?: string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: boolean | null
   notes?: string | null
   status?: string
   createdAt?: Date | string
@@ -314,6 +352,9 @@ export type AssessmentUncheckedCreateInput = {
 export type AssessmentUpdateInput = {
   assessmentDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   imageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  annotatedImageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: Prisma.NullableBoolFieldUpdateOperationsInput | boolean | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -325,6 +366,9 @@ export type AssessmentUncheckedUpdateInput = {
   woundId?: Prisma.IntFieldUpdateOperationsInput | number
   assessmentDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   imageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  annotatedImageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: Prisma.NullableBoolFieldUpdateOperationsInput | boolean | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -335,6 +379,9 @@ export type AssessmentCreateManyInput = {
   woundId: number
   assessmentDate?: Date | string
   imageKey?: string | null
+  annotatedImageKey?: string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: boolean | null
   notes?: string | null
   status?: string
   createdAt?: Date | string
@@ -343,6 +390,9 @@ export type AssessmentCreateManyInput = {
 export type AssessmentUpdateManyMutationInput = {
   assessmentDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   imageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  annotatedImageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: Prisma.NullableBoolFieldUpdateOperationsInput | boolean | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -353,6 +403,9 @@ export type AssessmentUncheckedUpdateManyInput = {
   woundId?: Prisma.IntFieldUpdateOperationsInput | number
   assessmentDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   imageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  annotatedImageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: Prisma.NullableBoolFieldUpdateOperationsInput | boolean | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -373,6 +426,9 @@ export type AssessmentCountOrderByAggregateInput = {
   woundId?: Prisma.SortOrder
   assessmentDate?: Prisma.SortOrder
   imageKey?: Prisma.SortOrder
+  annotatedImageKey?: Prisma.SortOrder
+  measurements?: Prisma.SortOrder
+  woundDetected?: Prisma.SortOrder
   notes?: Prisma.SortOrder
   status?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -388,6 +444,8 @@ export type AssessmentMaxOrderByAggregateInput = {
   woundId?: Prisma.SortOrder
   assessmentDate?: Prisma.SortOrder
   imageKey?: Prisma.SortOrder
+  annotatedImageKey?: Prisma.SortOrder
+  woundDetected?: Prisma.SortOrder
   notes?: Prisma.SortOrder
   status?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -398,6 +456,8 @@ export type AssessmentMinOrderByAggregateInput = {
   woundId?: Prisma.SortOrder
   assessmentDate?: Prisma.SortOrder
   imageKey?: Prisma.SortOrder
+  annotatedImageKey?: Prisma.SortOrder
+  woundDetected?: Prisma.SortOrder
   notes?: Prisma.SortOrder
   status?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -450,9 +510,16 @@ export type AssessmentUncheckedUpdateManyWithoutWoundNestedInput = {
   deleteMany?: Prisma.AssessmentScalarWhereInput | Prisma.AssessmentScalarWhereInput[]
 }
 
+export type NullableBoolFieldUpdateOperationsInput = {
+  set?: boolean | null
+}
+
 export type AssessmentCreateWithoutWoundInput = {
   assessmentDate?: Date | string
   imageKey?: string | null
+  annotatedImageKey?: string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: boolean | null
   notes?: string | null
   status?: string
   createdAt?: Date | string
@@ -462,6 +529,9 @@ export type AssessmentUncheckedCreateWithoutWoundInput = {
   id?: number
   assessmentDate?: Date | string
   imageKey?: string | null
+  annotatedImageKey?: string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: boolean | null
   notes?: string | null
   status?: string
   createdAt?: Date | string
@@ -501,6 +571,9 @@ export type AssessmentScalarWhereInput = {
   woundId?: Prisma.IntFilter<"Assessment"> | number
   assessmentDate?: Prisma.DateTimeFilter<"Assessment"> | Date | string
   imageKey?: Prisma.StringNullableFilter<"Assessment"> | string | null
+  annotatedImageKey?: Prisma.StringNullableFilter<"Assessment"> | string | null
+  measurements?: Prisma.JsonNullableFilter<"Assessment">
+  woundDetected?: Prisma.BoolNullableFilter<"Assessment"> | boolean | null
   notes?: Prisma.StringNullableFilter<"Assessment"> | string | null
   status?: Prisma.StringFilter<"Assessment"> | string
   createdAt?: Prisma.DateTimeFilter<"Assessment"> | Date | string
@@ -510,6 +583,9 @@ export type AssessmentCreateManyWoundInput = {
   id?: number
   assessmentDate?: Date | string
   imageKey?: string | null
+  annotatedImageKey?: string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: boolean | null
   notes?: string | null
   status?: string
   createdAt?: Date | string
@@ -518,6 +594,9 @@ export type AssessmentCreateManyWoundInput = {
 export type AssessmentUpdateWithoutWoundInput = {
   assessmentDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   imageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  annotatedImageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: Prisma.NullableBoolFieldUpdateOperationsInput | boolean | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -527,6 +606,9 @@ export type AssessmentUncheckedUpdateWithoutWoundInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   assessmentDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   imageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  annotatedImageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: Prisma.NullableBoolFieldUpdateOperationsInput | boolean | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -536,6 +618,9 @@ export type AssessmentUncheckedUpdateManyWithoutWoundInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   assessmentDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   imageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  annotatedImageKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  measurements?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  woundDetected?: Prisma.NullableBoolFieldUpdateOperationsInput | boolean | null
   notes?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -548,6 +633,9 @@ export type AssessmentSelect<ExtArgs extends runtime.Types.Extensions.InternalAr
   woundId?: boolean
   assessmentDate?: boolean
   imageKey?: boolean
+  annotatedImageKey?: boolean
+  measurements?: boolean
+  woundDetected?: boolean
   notes?: boolean
   status?: boolean
   createdAt?: boolean
@@ -559,6 +647,9 @@ export type AssessmentSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ex
   woundId?: boolean
   assessmentDate?: boolean
   imageKey?: boolean
+  annotatedImageKey?: boolean
+  measurements?: boolean
+  woundDetected?: boolean
   notes?: boolean
   status?: boolean
   createdAt?: boolean
@@ -570,6 +661,9 @@ export type AssessmentSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Ex
   woundId?: boolean
   assessmentDate?: boolean
   imageKey?: boolean
+  annotatedImageKey?: boolean
+  measurements?: boolean
+  woundDetected?: boolean
   notes?: boolean
   status?: boolean
   createdAt?: boolean
@@ -581,12 +675,15 @@ export type AssessmentSelectScalar = {
   woundId?: boolean
   assessmentDate?: boolean
   imageKey?: boolean
+  annotatedImageKey?: boolean
+  measurements?: boolean
+  woundDetected?: boolean
   notes?: boolean
   status?: boolean
   createdAt?: boolean
 }
 
-export type AssessmentOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "woundId" | "assessmentDate" | "imageKey" | "notes" | "status" | "createdAt", ExtArgs["result"]["assessment"]>
+export type AssessmentOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "woundId" | "assessmentDate" | "imageKey" | "annotatedImageKey" | "measurements" | "woundDetected" | "notes" | "status" | "createdAt", ExtArgs["result"]["assessment"]>
 export type AssessmentInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   wound?: boolean | Prisma.WoundDefaultArgs<ExtArgs>
 }
@@ -607,6 +704,9 @@ export type $AssessmentPayload<ExtArgs extends runtime.Types.Extensions.Internal
     woundId: number
     assessmentDate: Date
     imageKey: string | null
+    annotatedImageKey: string | null
+    measurements: runtime.JsonValue | null
+    woundDetected: boolean | null
     notes: string | null
     status: string
     createdAt: Date
@@ -1038,6 +1138,9 @@ export interface AssessmentFieldRefs {
   readonly woundId: Prisma.FieldRef<"Assessment", 'Int'>
   readonly assessmentDate: Prisma.FieldRef<"Assessment", 'DateTime'>
   readonly imageKey: Prisma.FieldRef<"Assessment", 'String'>
+  readonly annotatedImageKey: Prisma.FieldRef<"Assessment", 'String'>
+  readonly measurements: Prisma.FieldRef<"Assessment", 'Json'>
+  readonly woundDetected: Prisma.FieldRef<"Assessment", 'Boolean'>
   readonly notes: Prisma.FieldRef<"Assessment", 'String'>
   readonly status: Prisma.FieldRef<"Assessment", 'String'>
   readonly createdAt: Prisma.FieldRef<"Assessment", 'DateTime'>

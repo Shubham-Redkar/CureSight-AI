@@ -8,7 +8,7 @@
  *
  * 🟢 You can import this file directly.
  */
-export type * from './models/Patient.js'
-export type * from './models/Wound.js'
-export type * from './models/Assessment.js'
-export type * from './commonInputTypes.js'
+export type * from './models/Patient.ts'
+export type * from './models/Wound.ts'
+export type * from './models/Assessment.ts'
+export type * from './commonInputTypes.ts'

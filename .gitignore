@@ -152,9 +152,9 @@ backend/.env.*
 # FastAPI ML Service
 # ============================================================
 
-ml-service/.venv/
-ml-service/__pycache__/
-ml-service/.pytest_cache/
+ai_service/.venv/
+ai_service/__pycache__/
+ai_service/.pytest_cache/
 
 
 # ============================================================

@@ -25,11 +25,10 @@ export const Patients: React.FC<PatientsProps> = ({
   setSelectedWoundId,
   setActiveTab,
 }) => {
-  const { patients, wounds, assessments, reports, addPatient, addWound } = useWounds();
+  const { patients, wounds, assessments, addPatient, addWound, isLoading, error } = useWounds();
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
-  const [genderFilter, setGenderFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
   // Modals state
@@ -38,9 +37,9 @@ export const Patients: React.FC<PatientsProps> = ({
 
   // New Patient Form state
   const [patientForm, setPatientForm] = useState({
-    id: '',
-    birthDate: '',
-    gender: 'Female',
+    patientCode: '',
+    name: '',
+    age: '',
   });
   const [patientFormError, setPatientFormError] = useState('');
 
@@ -52,40 +51,40 @@ export const Patients: React.FC<PatientsProps> = ({
   const [woundFormError, setWoundFormError] = useState('');
 
   // Registration handler
-  const handleRegisterPatient = (e: React.FormEvent) => {
+  const handleRegisterPatient = async (e: React.FormEvent) => {
     e.preventDefault();
     setPatientFormError('');
 
-    if (!patientForm.id.trim()) {
-      setPatientFormError('Patient ID is required.');
+    if (!patientForm.patientCode.trim()) {
+      setPatientFormError('Patient Code is required.');
       return;
     }
-    const cleanId = patientForm.id.trim().toUpperCase();
-    if (!/^PT-\d+$/.test(cleanId)) {
-      setPatientFormError('Patient ID must match format PT-XXXX (e.g., PT-0941).');
+    const cleanCode = patientForm.patientCode.trim().toUpperCase();
+    if (patients.some(p => p.patientCode === cleanCode)) {
+      setPatientFormError('A patient with this Clinical Code already exists.');
       return;
     }
-    if (patients.some(p => p.id === cleanId)) {
-      setPatientFormError('A patient with this Clinical ID already exists.');
-      return;
-    }
-    if (!patientForm.birthDate) {
-      setPatientFormError('Birth Date is required.');
+    if (!patientForm.name.trim()) {
+      setPatientFormError('Patient Name is required.');
       return;
     }
 
-    addPatient({
-      id: cleanId,
-      birthDate: patientForm.birthDate,
-      gender: patientForm.gender,
-    });
+    try {
+      await addPatient({
+        patientCode: cleanCode,
+        name: patientForm.name.trim(),
+        age: patientForm.age ? parseInt(patientForm.age) : null,
+      });
 
-    setIsRegisterOpen(false);
-    setPatientForm({ id: '', birthDate: '', gender: 'Female' });
+      setIsRegisterOpen(false);
+      setPatientForm({ patientCode: '', name: '', age: '' });
+    } catch (err: any) {
+      setPatientFormError(err.message || 'Failed to register patient');
+    }
   };
 
   // Add Wound handler
-  const handleAddWound = (e: React.FormEvent) => {
+  const handleAddWound = async (e: React.FormEvent) => {
     e.preventDefault();
     setWoundFormError('');
 
@@ -95,14 +94,21 @@ export const Patients: React.FC<PatientsProps> = ({
     }
 
     if (selectedPatientId) {
-      addWound({
-        patientId: selectedPatientId,
-        location: woundForm.location.trim(),
-        type: woundForm.type,
-      });
+      const selectedPatient = patients.find(p => p.id === Number(selectedPatientId));
+      if (!selectedPatient) return;
+      
+      try {
+        await addWound({
+          patientId: selectedPatient.id,
+          location: woundForm.location.trim(),
+          description: woundForm.type,
+        });
 
-      setIsAddWoundOpen(false);
-      setWoundForm({ location: '', type: 'Diabetic Foot Ulcer' });
+        setIsAddWoundOpen(false);
+        setWoundForm({ location: '', type: 'Diabetic Foot Ulcer' });
+      } catch (err: any) {
+        setWoundFormError(err.message || 'Failed to register wound site');
+      }
     }
   };
 
@@ -121,33 +127,43 @@ export const Patients: React.FC<PatientsProps> = ({
 
   // Filtered Patients List
   const filteredPatients = patients.filter(p => {
-    const matchesSearch = p.id.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesGender = genderFilter ? p.gender === genderFilter : true;
+    const matchesSearch = p.patientCode.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          p.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter ? p.overallHealingStatus === statusFilter : true;
-    return matchesSearch && matchesGender && matchesStatus;
+    return matchesSearch && matchesStatus;
   });
 
-  const selectedPatient = patients.find(p => p.id === selectedPatientId);
-  const selectedPatientWounds = wounds.filter(w => w.patientId === selectedPatientId);
-  const selectedPatientAssessments = assessments.filter(a => a.patientId === selectedPatientId);
-  const selectedPatientReports = reports.filter(r => r.patientId === selectedPatientId);
+  const selectedPatient = patients.find(p => p.id === Number(selectedPatientId));
+  const selectedPatientWounds = wounds.filter(w => w.patientId === Number(selectedPatientId));
+  const selectedPatientAssessments = assessments.filter(a => {
+    const w = selectedPatientWounds.find(wound => wound.id === a.woundId);
+    return !!w;
+  });
+  const selectedPatientReports = assessments.filter(a => 
+    wounds.find(w => w.id === Number(a.woundId))?.patientId === Number(selectedPatientId) && 
+    (a.status === 'Analysis Completed' || a.status === 'COMPLETED')
+  );
 
-  // Age calculation
-  const getAge = (dob: string) => {
-    const today = new Date();
-    const birthDate = new Date(dob);
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const m = today.getMonth() - birthDate.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
-    }
-    return age;
-  };
+  // Age is now directly on the model, removing getAge calculation
 
   return (
     <div className="space-y-6">
-      {/* 1. LIST VIEW */}
-      {!selectedPatient ? (
+      {/* 1. ERROR AND LOADING STATES */}
+      {error && !selectedPatient && (
+        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <p className="text-sm font-medium">{error}</p>
+        </div>
+      )}
+      {isLoading && !selectedPatient && !error && (
+        <div className="text-center py-12 flex flex-col items-center justify-center">
+           <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+           <p className="text-sm text-slate-500">Loading patients...</p>
+        </div>
+      )}
+
+      {/* 2. LIST VIEW */}
+      {!selectedPatient && !isLoading && !error && (
         <div className="space-y-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -173,22 +189,12 @@ export const Patients: React.FC<PatientsProps> = ({
               </span>
               <input
                 type="text"
-                placeholder="Search Patient ID (e.g. PT-0123)..."
+                placeholder="Search by code or name..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50/50 border border-slate-200 rounded-md focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:bg-white text-slate-800"
               />
             </div>
-            <Select
-              className="py-1.5 text-xs bg-slate-50/50"
-              value={genderFilter}
-              onChange={e => setGenderFilter(e.target.value)}
-            >
-              <option value="">All Genders</option>
-              <option value="Female">Female</option>
-              <option value="Male">Male</option>
-              <option value="Other">Other</option>
-            </Select>
             <Select
               className="py-1.5 text-xs bg-slate-50/50"
               value={statusFilter}
@@ -209,11 +215,11 @@ export const Patients: React.FC<PatientsProps> = ({
                 <Users className="w-12 h-12 text-slate-350 stroke-1 mb-3" />
                 <h3 className="font-semibold text-slate-700 text-sm">No Patients Found</h3>
                 <p className="text-xs text-slate-400 max-w-xs mt-1">
-                  {searchQuery || genderFilter || statusFilter
+                  {searchQuery || statusFilter
                     ? 'Adjust your query or filters to search for clinical records.'
                     : 'The patient registry is empty. Add a clinical ID to start.'}
                 </p>
-                {!searchQuery && !genderFilter && !statusFilter && (
+                {!searchQuery && !statusFilter && (
                   <Button
                     size="sm"
                     onClick={() => setIsRegisterOpen(true)}
@@ -229,9 +235,9 @@ export const Patients: React.FC<PatientsProps> = ({
                 <table className="w-full border-collapse text-left text-xs md:text-sm">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
-                      <th className="py-3 px-5">Patient ID</th>
-                      <th className="py-3 px-5">Clinical Age / DOB</th>
-                      <th className="py-3 px-5">Gender</th>
+                      <th className="py-3 px-5">Patient Code</th>
+                      <th className="py-3 px-5">Name</th>
+                      <th className="py-3 px-5">Age</th>
                       <th className="py-3 px-5">Active Wounds</th>
                       <th className="py-3 px-5">Latest Assessment</th>
                       <th className="py-3 px-5">Overall Status</th>
@@ -241,19 +247,17 @@ export const Patients: React.FC<PatientsProps> = ({
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {filteredPatients.map(p => (
                       <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="py-3 px-5 font-mono font-bold text-slate-900">{p.id}</td>
-                        <td className="py-3 px-5">
-                          {getAge(p.birthDate)} yrs <span className="text-slate-400 text-2xs">({p.birthDate})</span>
-                        </td>
-                        <td className="py-3 px-5">{p.gender}</td>
+                        <td className="py-3 px-5 font-mono font-bold text-slate-900">{p.patientCode}</td>
+                        <td className="py-3 px-5">{p.name}</td>
+                        <td className="py-3 px-5">{p.age || 'Unknown'}</td>
                         <td className="py-3 px-5 font-medium">{p.woundsCount}</td>
                         <td className="py-3 px-5">{p.latestAssessmentDate || 'None'}</td>
-                        <td className="py-3 px-5">{getHealingBadge(p.overallHealingStatus)}</td>
+                        <td className="py-3 px-5">{getHealingBadge(p.overallHealingStatus ?? 'Unassessed')}</td>
                         <td className="py-3 px-5 text-right">
                           <Button
                             variant="secondary"
                             size="sm"
-                            onClick={() => setSelectedPatientId(p.id)}
+                            onClick={() => setSelectedPatientId(String(p.id))}
                             className="cursor-pointer text-xs"
                           >
                             Open Records
@@ -267,8 +271,10 @@ export const Patients: React.FC<PatientsProps> = ({
             )}
           </Card>
         </div>
-      ) : (
-        /* 2. DETAIL VIEW */
+      )}
+
+      {/* 3. DETAIL VIEW */}
+      {selectedPatient && (
         <div className="space-y-6">
           {/* BACK TO REGISTRY HEADER */}
           <div className="flex items-center gap-3">
@@ -280,11 +286,11 @@ export const Patients: React.FC<PatientsProps> = ({
             </button>
             <div>
               <div className="flex items-center gap-3">
-                <h2 className="text-xl font-bold text-slate-900 tracking-tight font-mono">Patient: {selectedPatient.id}</h2>
-                {getHealingBadge(selectedPatient.overallHealingStatus)}
+                <h2 className="text-xl font-bold text-slate-900 tracking-tight font-mono">Patient: {selectedPatient.patientCode}</h2>
+                {getHealingBadge(selectedPatient.overallHealingStatus ?? 'Unassessed')}
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Demographics: {selectedPatient.gender} • DOB: {selectedPatient.birthDate} ({getAge(selectedPatient.birthDate)} years old)
+                Name: {selectedPatient.name} • Age: {selectedPatient.age || 'Unknown'}
               </p>
             </div>
           </div>
@@ -326,10 +332,10 @@ export const Patients: React.FC<PatientsProps> = ({
                           <div>
                             <div className="flex items-center justify-between">
                               <span className="font-mono text-xs font-semibold text-slate-500">{wound.id}</span>
-                              {getHealingBadge(wound.status)}
+                              {getHealingBadge(wound.status ?? 'Unavailable')}
                             </div>
                             <h4 className="font-semibold text-slate-800 text-sm mt-1.5">{wound.location}</h4>
-                            <div className="text-2xs text-slate-500 mt-0.5">{wound.type}</div>
+                            <div className="text-2xs text-slate-500 mt-0.5">{wound.description || 'N/A'}</div>
                           </div>
                           
                           <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
@@ -341,7 +347,7 @@ export const Patients: React.FC<PatientsProps> = ({
                                 size="sm"
                                 variant="secondary"
                                 onClick={() => {
-                                  setSelectedWoundId(wound.id);
+                                  setSelectedWoundId(String(wound.id));
                                   setActiveTab('progress');
                                 }}
                                 className="text-[10px] py-1 px-2.5 cursor-pointer flex items-center gap-1"
@@ -352,8 +358,8 @@ export const Patients: React.FC<PatientsProps> = ({
                               <Button
                                 size="sm"
                                 onClick={() => {
-                                  setSelectedWoundId(wound.id);
-                                  setSelectedPatientId(selectedPatient.id);
+                                  setSelectedWoundId(String(wound.id));
+                                  setSelectedPatientId(String(selectedPatient.id));
                                   setActiveTab('assessment');
                                 }}
                                 className="text-[10px] py-1 px-2.5 cursor-pointer bg-teal-700 hover:bg-teal-800 text-white"
@@ -401,13 +407,13 @@ export const Patients: React.FC<PatientsProps> = ({
 
                           const hStatus = ass.verifiedResult
                             ? ass.verifiedResult.healingStatus
-                            : ass.aiResult?.healingStatus || 'Stable';
+                            : ass.aiResult?.healingStatus ?? 'Unassessed';
 
                           return (
                             <tr key={ass.id} className="hover:bg-slate-50/20">
                               <td className="py-2.5 px-5 font-mono font-medium text-slate-900">{ass.id}</td>
                               <td className="py-2.5 px-5 font-mono text-slate-500">{ass.woundId}</td>
-                              <td className="py-2.5 px-5">{ass.date}</td>
+                              <td className="py-2.5 px-5">{ass.assessmentDate}</td>
                               <td className="py-2.5 px-5">
                                 {area ? `${area} cm² (${dim})` : 'Pending'}
                               </td>
@@ -436,12 +442,12 @@ export const Patients: React.FC<PatientsProps> = ({
                   <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-100 space-y-2">
                     <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Demographics</div>
                     <div className="grid grid-cols-2 gap-2 text-xs text-slate-700">
-                      <div>Clinical ID:</div>
-                      <div className="font-mono font-semibold text-slate-900">{selectedPatient.id}</div>
-                      <div>DOB:</div>
-                      <div className="font-medium">{selectedPatient.birthDate}</div>
-                      <div>Biological Gender:</div>
-                      <div className="font-medium">{selectedPatient.gender}</div>
+                      <div>Clinical Code:</div>
+                      <div className="font-mono font-semibold text-slate-900">{selectedPatient.patientCode}</div>
+                      <div>Name:</div>
+                      <div className="font-medium">{selectedPatient.name}</div>
+                      <div>Age:</div>
+                      <div className="font-medium">{selectedPatient.age || 'Unknown'}</div>
                     </div>
                   </div>
 
@@ -500,7 +506,7 @@ export const Patients: React.FC<PatientsProps> = ({
                       >
                         <div className="min-w-0">
                           <div className="font-semibold text-slate-800 truncate">Report {rep.id}</div>
-                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">{rep.woundId} • {rep.generatedDate}</div>
+                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">{wounds.find(w => w.id === Number(rep.woundId))?.location || 'Unknown Wound'} • {new Date(rep.assessmentDate).toLocaleDateString()}</div>
                         </div>
                         <Badge variant="verified">Final</Badge>
                       </div>
@@ -548,30 +554,28 @@ export const Patients: React.FC<PatientsProps> = ({
           </div>
 
           <Input
-            label="Patient ID (PT-XXXX format)"
+            label="Patient Code"
             placeholder="PT-0001"
-            value={patientForm.id}
-            onChange={e => setPatientForm({ ...patientForm, id: e.target.value })}
+            value={patientForm.patientCode}
+            onChange={e => setPatientForm({ ...patientForm, patientCode: e.target.value })}
             required
           />
 
           <Input
-            label="Date of Birth"
-            type="date"
-            value={patientForm.birthDate}
-            onChange={e => setPatientForm({ ...patientForm, birthDate: e.target.value })}
+            label="Full Name"
+            placeholder="Jane Doe"
+            value={patientForm.name}
+            onChange={e => setPatientForm({ ...patientForm, name: e.target.value })}
             required
           />
 
-          <Select
-            label="Biological Gender"
-            value={patientForm.gender}
-            onChange={e => setPatientForm({ ...patientForm, gender: e.target.value })}
-          >
-            <option value="Female">Female</option>
-            <option value="Male">Male</option>
-            <option value="Other">Other</option>
-          </Select>
+          <Input
+            label="Age"
+            type="number"
+            placeholder="45"
+            value={patientForm.age}
+            onChange={e => setPatientForm({ ...patientForm, age: e.target.value })}
+          />
 
           {patientFormError && (
             <div className="text-xs text-rose-600 font-medium pt-1">
