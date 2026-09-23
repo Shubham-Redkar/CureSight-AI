@@ -1,0 +1,2 @@
+{"status":"ok","message":"Image uploaded successfully","bucket":"wound-images","objectName":"wounds/1790086985601-mot89v7weck.jpg","originalName":"media_1790059036845.jpg","size":36889,"contentType":"image/jpeg","aiAnalysis":null,"aiError":"fetch failed","assessment":{"id":37,"woundId":5,"assessmentDate":"2026-09-22T14:23:05.625Z","imageKey":"wounds/1790086985601-mot89v7weck.jpg","annotatedImageKey":null,"measurements":null,"woundDetected":null,"notes":"fetch failed","status":"FAILED","createdAt":"2026-09-22T14:23:05.625Z"}}
+HTTP_STATUS:200

@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Patient {
+  id          Int      @id @default(autoincrement())
+  patientCode String   @unique
+  name        String
+  age         Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  wounds      Wound[]
+}
+
+model Wound {
+  id          Int      @id @default(autoincrement())
+  patientId   Int
+  location    String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  patient     Patient      @relation(fields: [patientId], references: [id])
+  assessments Assessment[]
+}
+
+model Assessment {
+  id                Int      @id @default(autoincrement())
+  woundId           Int
+  assessmentDate    DateTime @default(now())
+  imageKey          String?
+  annotatedImageKey String?
+  measurements      Json?
+  woundDetected     Boolean?
+  notes             String?
+  status            String   @default("PENDING")
+  verified          Boolean  @default(false)
+  verifiedResult    Json?
+  createdAt         DateTime @default(now())
+
+  wound             Wound    @relation(fields: [woundId], references: [id])
+}
+
+enum UserRole {
+  DOCTOR
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String
+  role         UserRole @default(DOCTOR)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
