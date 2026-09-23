@@ -62,11 +62,11 @@ htmlcov/
 runs/
 
 # Model weights
-*.pt
-*.pth
-*.onnx
-*.engine
-*.weights
+# *.pt
+# *.pth
+# *.onnx
+# *.engine
+# *.weights
 
 # ML experiment outputs
 wandb/
