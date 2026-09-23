@@ -56,3 +56,8 @@ export type Wound = Prisma.WoundModel
  * 
  */
 export type Assessment = Prisma.AssessmentModel
+/**
+ * Model User
+ * 
+ */
+export type User = Prisma.UserModel

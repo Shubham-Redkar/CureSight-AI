@@ -1,8 +1,8 @@
 ml_pipeline:
   wound_gate_model: api/models/wound_gate/best.pt
-  require_wound_gate: true
+  require_wound_gate: false
   yolo_model: api/models/yolo/best.pt
-  require_yolo: true
+  require_yolo: false
   yolo_confidence_threshold: 0.25
   unet_model: api/models/unet/best.pth
   require_unet: true
@@ -25,3 +25,20 @@ api_limits:
   max_upload_size_mb: 20
   max_image_width: 4096
   max_image_height: 4096
+
+calibration:
+  demo:
+    enabled: true
+    default_pixels_per_cm: 25.0
+  enabled: true
+  marker:
+    type: "green_square"
+    width_cm: 2.0
+    height_cm: 2.0
+  detection:
+    min_area_ratio_of_image: 0.0005
+    max_area_ratio: 0.20
+    aspect_ratio_tolerance: 0.10
+    min_fill_ratio: 0.90
+    min_confidence: 0.95
+    confidence_margin: 0.10

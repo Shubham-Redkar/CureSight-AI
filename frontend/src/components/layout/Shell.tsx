@@ -12,6 +12,7 @@ import {
   User,
   HeartPulse
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 interface ShellProps {
   activeTab: string;
@@ -30,6 +31,7 @@ export const Shell: React.FC<ShellProps> = ({
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const { user, logout } = useAuth();
 
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -45,9 +47,9 @@ export const Shell: React.FC<ShellProps> = ({
     setIsMobileMenuOpen(false);
   };
 
-  const handleLogout = () => {
-    if (confirm('Are you sure you want to end your current session?')) {
-      alert('You have logged out. (This is a frontend demonstration.)');
+  const handleLogout = async () => {
+    if (confirm('Are you sure you want to log out?')) {
+      await logout();
     }
   };
 
@@ -57,7 +59,7 @@ export const Shell: React.FC<ShellProps> = ({
       <header className="lg:hidden bg-white border-b border-slate-200 sticky top-0 z-40 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <HeartPulse className="w-6 h-6 text-teal-700" />
-          <span className="font-semibold text-slate-900 tracking-tight text-sm">Wound Healing Progress</span>
+          <span className="font-semibold text-slate-900 tracking-tight text-sm">CureSight AI</span>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -80,10 +82,10 @@ export const Shell: React.FC<ShellProps> = ({
             </div>
             <div className="flex flex-col">
               <span className="font-bold text-slate-900 text-sm leading-tight tracking-tight">
-                AI WOUND PROGRESS
+                CureSight AI
               </span>
               <span className="text-[10px] font-medium text-teal-700 tracking-wider uppercase">
-                Clinical Suite
+                Wound Intelligence Platform
               </span>
             </div>
           </div>
@@ -121,8 +123,8 @@ export const Shell: React.FC<ShellProps> = ({
                   <User className="w-4 h-4" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-slate-900 truncate">Clinical Staff</div>
-                  <div className="text-[10px] text-slate-500 truncate">{practitionerRole}</div>
+                  <div className="text-xs font-semibold text-slate-900 truncate">{user?.username || 'Clinician'}</div>
+                  <div className="text-[10px] text-slate-500 truncate">{user?.role || practitionerRole}</div>
                 </div>
               </button>
 
@@ -157,7 +159,7 @@ export const Shell: React.FC<ShellProps> = ({
               <div className="flex items-center justify-between px-3 pb-4 border-b border-slate-100 mb-4">
                 <div className="flex items-center gap-2">
                   <HeartPulse className="w-5 h-5 text-teal-700" />
-                  <span className="font-semibold text-slate-900 text-sm">Wound Healing AI</span>
+                  <span className="font-semibold text-slate-900 text-sm">CureSight AI</span>
                 </div>
                 <button
                   onClick={() => setIsMobileMenuOpen(false)}
@@ -194,8 +196,8 @@ export const Shell: React.FC<ShellProps> = ({
                     <User className="w-4 h-4" />
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-slate-900">Clinical Staff</div>
-                    <div className="text-[10px] text-slate-500">{practitionerRole}</div>
+                    <div className="text-xs font-semibold text-slate-900">{user?.username || 'Clinician'}</div>
+                    <div className="text-[10px] text-slate-500">{user?.role || practitionerRole}</div>
                   </div>
                 </div>
                 <button
@@ -214,9 +216,14 @@ export const Shell: React.FC<ShellProps> = ({
         <main className="flex-1 flex flex-col min-w-0 overflow-y-auto h-screen">
           {/* Header (Desktop-only subtitle/banner) */}
           <div className="hidden lg:flex items-center justify-between px-8 py-4 bg-white border-b border-slate-200 shrink-0">
-            <h1 className="text-lg font-semibold text-slate-900 m-0 tracking-tight">
-              AI BASED WOUND HEALING PROGRESS ANALYSIS
-            </h1>
+            <div>
+              <h1 className="text-lg font-semibold text-slate-900 m-0 tracking-tight">
+                CureSight AI
+              </h1>
+              <div className="text-xs text-slate-500 font-medium mt-0.5">
+                AI-Powered Wound Assessment & Progress Monitoring
+              </div>
+            </div>
             <div className="flex items-center gap-3 text-xs text-slate-500 font-medium">
               <span>Institution: <strong className="text-slate-700">{clinicName}</strong></span>
               <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>

@@ -167,9 +167,9 @@ export const Patients: React.FC<PatientsProps> = ({
         <div className="space-y-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-bold text-slate-900 m-0 tracking-tight">Patient Registry</h2>
+              <h2 className="text-xl font-bold text-slate-900 m-0 tracking-tight">Patients</h2>
               <p className="text-xs text-slate-500 mt-1">
-                Clinical records database. Select a patient ID to view active wound locations, histories, and analytics.
+                Manage patient profiles and associated wound assessments.
               </p>
             </div>
             <Button
@@ -213,11 +213,11 @@ export const Patients: React.FC<PatientsProps> = ({
             {filteredPatients.length === 0 ? (
               <div className="text-center py-12 flex flex-col items-center justify-center">
                 <Users className="w-12 h-12 text-slate-350 stroke-1 mb-3" />
-                <h3 className="font-semibold text-slate-700 text-sm">No Patients Found</h3>
+                <h3 className="font-semibold text-slate-700 text-sm">No patients yet</h3>
                 <p className="text-xs text-slate-400 max-w-xs mt-1">
                   {searchQuery || statusFilter
-                    ? 'Adjust your query or filters to search for clinical records.'
-                    : 'The patient registry is empty. Add a clinical ID to start.'}
+                    ? 'Adjust your query or filters to search for patients.'
+                    : 'Add a clinical ID to start.'}
                 </p>
                 {!searchQuery && !statusFilter && (
                   <Button
@@ -260,7 +260,7 @@ export const Patients: React.FC<PatientsProps> = ({
                             onClick={() => setSelectedPatientId(String(p.id))}
                             className="cursor-pointer text-xs"
                           >
-                            Open Records
+                            Open Assessments
                           </Button>
                         </td>
                       </tr>
@@ -314,7 +314,7 @@ export const Patients: React.FC<PatientsProps> = ({
                 {selectedPatientWounds.length === 0 ? (
                   <div className="text-center py-8">
                     <Layers className="w-10 h-10 text-slate-300 stroke-1 mx-auto mb-2" />
-                    <h4 className="font-semibold text-slate-700 text-xs">No Wound Records Linked</h4>
+                    <h4 className="font-semibold text-slate-700 text-xs">No Wounds Linked</h4>
                     <p className="text-2xs text-slate-400 max-w-xs mx-auto mt-0.5">
                       Patients can have multiple wounds tracked simultaneously. Add a location to begin.
                     </p>
@@ -335,7 +335,7 @@ export const Patients: React.FC<PatientsProps> = ({
                               {getHealingBadge(wound.status ?? 'Unavailable')}
                             </div>
                             <h4 className="font-semibold text-slate-800 text-sm mt-1.5">{wound.location}</h4>
-                            <div className="text-2xs text-slate-500 mt-0.5">{wound.description || 'N/A'}</div>
+                            <div className="text-2xs text-slate-500 mt-0.5">{wound.description || 'Unspecified'}</div>
                           </div>
                           
                           <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
@@ -585,7 +585,7 @@ export const Patients: React.FC<PatientsProps> = ({
         </form>
       </Modal>
 
-      {/* ADD WOUND RECORD MODAL */}
+      {/* ADD WOUND MODAL */}
       <Modal
         isOpen={isAddWoundOpen}
         onClose={() => {

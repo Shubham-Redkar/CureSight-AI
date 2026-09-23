@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { apiFetch } from '../utils/api';
 import type { Patient, Wound, Assessment } from '../types';
 
 interface WoundContextType {
@@ -53,7 +54,7 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setError(null);
       let res;
       try {
-        res = await fetch(`${API_URL}/api/patients`);
+        res = await apiFetch(`/api/patients`);
       } catch (err) {
         throw new Error("Unable to connect to the backend server. Please make sure the server is running.");
       }
@@ -76,7 +77,7 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const addPatient = async (patientData: Omit<Patient, 'id' | 'woundsCount' | 'overallHealingStatus'>) => {
     let res;
     try {
-      res = await fetch(`${API_URL}/api/patients`, {
+      res = await apiFetch(`/api/patients`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patientData)
@@ -100,7 +101,7 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       let res;
       try {
-        res = await fetch(`${API_URL}/api/wounds?patientId=${patient.id}`);
+        res = await apiFetch(`/api/wounds?patientId=${patient.id}`);
       } catch (err) {
         throw new Error("Unable to connect to the backend server. Please make sure the server is running.");
       }
@@ -123,7 +124,7 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     let res;
     try {
-      res = await fetch(`${API_URL}/api/wounds`, {
+      res = await apiFetch(`/api/wounds`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -146,38 +147,41 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       let res;
       try {
-        res = await fetch(`${API_URL}/api/assessments?woundId=${woundId}`);
+        res = await apiFetch(`/api/assessments?woundId=${woundId}`);
       } catch (err) {
         throw new Error("Unable to connect to the backend server. Please make sure the server is running.");
       }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || data.error || "Failed to load assessments");
       if (data.status === 'ok') {
-        const mappedAssessments = data.assessments.map((dbAss: any) => {
+        const mappedAssessments = data.assessments.map((assessment: any) => {
           let aiResult = undefined;
-          if (dbAss.status === 'COMPLETED') {
+          if (assessment.status === 'COMPLETED') {
              aiResult = {
-                 detectionConfidence: dbAss.measurements?.wounds?.[0]?.detection_confidence ?? null,
+                 detectionConfidence: assessment.measurements?.wounds?.[0]?.detection_confidence ?? null,
                  measurements: {
-                     areaCm2: dbAss.measurements?.total_area_cm2 ?? null,
-                     lengthCm: dbAss.measurements?.wounds?.[0]?.length_cm ?? null,
-                     widthCm: dbAss.measurements?.wounds?.[0]?.width_cm ?? null,
+                     woundCount: assessment.measurements?.wound_count ?? 0,
+                     areaCm2: assessment.measurements?.total_area_cm2 ?? null,
+                     lengthCm: assessment.measurements?.wounds?.[0]?.length_cm ?? null,
+                     widthCm: assessment.measurements?.wounds?.[0]?.width_cm ?? null,
                      granulationTissuePct: null,
                      sloughTissuePct: null,
                      escharTissuePct: null,
+                     woundsList: assessment.measurements?.wounds ?? [],
                  },
-                 tissueAnalysis: dbAss.notes || 'Analysis complete',
-                 healingStatus: 'Unavailable'
+                 tissueAnalysis: assessment.notes || 'Analysis complete',
+                 healingStatus: 'Unavailable',
+                 calibration: assessment.measurements?.calibration || null
              };
           }
 
           return {
-             ...dbAss,
-             status: dbAss.status === 'COMPLETED' ? 'Analysis Completed' : (dbAss.status === 'FAILED' ? 'Analysis Failed' : 'Pending Analysis'),
+             ...assessment,
+             status: assessment.status === 'COMPLETED' ? 'Analysis Completed' : (assessment.status === 'FAILED' ? 'Analysis Failed' : 'Pending Analysis'),
              aiResult,
-             analyzedImageUrl: dbAss.annotatedImageKey ? `${API_URL}/api/images/${dbAss.annotatedImageKey}` : undefined,
-             imageUrl: dbAss.imageKey ? `${API_URL}/api/images/${dbAss.imageKey}` : undefined,
-             error: dbAss.status === 'FAILED' ? dbAss.notes : undefined
+             analyzedImageUrl: assessment.annotatedImageKey ? `${API_URL}/api/images/${assessment.annotatedImageKey}` : undefined,
+             imageUrl: assessment.imageKey ? `${API_URL}/api/images/${assessment.imageKey}` : undefined,
+             error: assessment.status === 'FAILED' ? assessment.notes : undefined
           };
         });
 
@@ -208,7 +212,7 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       
       let response;
       try {
-        response = await fetch(`${API_URL}/api/upload`, {
+        response = await apiFetch(`/api/upload`, {
           method: "POST",
           body: formData,
         });
@@ -226,20 +230,23 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (data.assessment) {
         // Hydrate UI mapping fields since the UI reads these
         const ai = data.aiAnalysis || {};
-        const newAss = {
+        const newAssessment = {
             ...data.assessment,
             aiResult: data.assessment.status === 'FAILED' ? undefined : {
                 detectionConfidence: data.assessment.measurements?.wounds?.[0]?.detection_confidence ?? ai.detection_confidence ?? null,
                 measurements: {
+                    woundCount: data.assessment.measurements?.wound_count ?? 0,
                     areaCm2: data.assessment.measurements?.total_area_cm2 ?? null,
                     lengthCm: data.assessment.measurements?.wounds?.[0]?.length_cm ?? null,
                     widthCm: data.assessment.measurements?.wounds?.[0]?.width_cm ?? null,
                     granulationTissuePct: null,
                     sloughTissuePct: null,
                     escharTissuePct: null,
+                    woundsList: data.assessment.measurements?.wounds ?? [],
                 },
                 tissueAnalysis: ai.message || data.assessment.notes || 'Analysis complete',
-                healingStatus: 'Unavailable'
+                healingStatus: 'Unavailable',
+                calibration: data.assessment.measurements?.calibration || null
             },
             analyzedImageUrl: ai.annotated_image_url ? `${API_URL}${ai.annotated_image_url}` : undefined,
             imageUrl: data.objectName ? `${API_URL}/api/images/${data.objectName}` : undefined,
@@ -247,13 +254,13 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
 
         if (data.assessment.status === 'COMPLETED') {
-            newAss.status = 'Analysis Completed';
+            newAssessment.status = 'Analysis Completed';
         } else if (data.assessment.status === 'FAILED') {
-            newAss.status = 'Analysis Failed';
+            newAssessment.status = 'Analysis Failed';
         }
 
-        setAssessments(prev => [newAss, ...prev.filter(a => a.id !== newAss.id)]);
-        return newAss;
+        setAssessments(prev => [newAssessment, ...prev.filter(a => a.id !== newAssessment.id)]);
+        return newAssessment;
       }
       throw new Error("Backend did not return an assessment.");
     } catch (err: any) {
@@ -261,22 +268,34 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const verifyAssessment = (
+  const verifyAssessment = async (
     assessmentId: number | string,
     verifiedResult: NonNullable<Assessment['verifiedResult']>
   ) => {
-    setAssessments(prev =>
-      prev.map(a => {
-        if (a.id === Number(assessmentId)) {
-          return {
-            ...a,
-            status: 'Verified',
-            verifiedResult,
-          };
-        }
-        return a;
-      })
-    );
+    try {
+      const res = await apiFetch(`/api/assessments/${assessmentId}/verify`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verifiedResult })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || "Failed to verify assessment");
+      
+      setAssessments(prev =>
+        prev.map(a => {
+          if (a.id === Number(assessmentId)) {
+            return {
+              ...a,
+              status: 'Verified', // Keep frontend display status if needed, or let it match backend
+              verifiedResult,
+            };
+          }
+          return a;
+        })
+      );
+    } catch (err: any) {
+      setError(err.message || "Failed to verify assessment");
+    }
   };
 
   const updateSettings = (newSettings: Partial<WoundContextType['settings']>) => {

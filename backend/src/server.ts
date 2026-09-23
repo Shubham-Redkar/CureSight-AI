@@ -1,8 +1,11 @@
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import "dotenv/config";
+import cookieParser from "cookie-parser";
+import jwt from "jsonwebtoken";
+import * as argon2 from "argon2";
 
-import { PrismaClient } from "../generated/prisma/client";
+import { PrismaClient, UserRole } from "../generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import minioClient from "./minio";
@@ -10,8 +13,12 @@ import upload from "./upload";
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true,
+}));
 app.use(express.json());
+app.use(cookieParser());
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL!,
@@ -49,6 +56,109 @@ app.get("/api/db-test", async (req, res) => {
     });
   }
 });
+
+// Authentication Middleware
+export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+  const token = req.cookies.token;
+  if (!token) {
+    return res.status(401).json({ error: "UNAUTHORIZED", message: "Authentication required" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { sub: string; role: UserRole };
+    (req as any).user = { id: decoded.sub, role: decoded.role };
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: "UNAUTHORIZED", message: "Invalid or expired token" });
+  }
+};
+
+export const requireRole = (role: UserRole) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const user = (req as any).user;
+    if (!user || user.role !== role) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions" });
+    }
+    next();
+  };
+};
+
+// Auth Endpoints
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "INVALID_INPUT", message: "Username and password required" });
+    }
+
+    const user = await prisma.user.findUnique({ where: { username } });
+    if (!user) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "Invalid username or password" });
+    }
+
+    const valid = await argon2.verify(user.passwordHash, password);
+    if (!valid) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "Invalid username or password" });
+    }
+
+    const token = jwt.sign(
+      { sub: user.id, role: user.role },
+      process.env.JWT_SECRET!,
+      { expiresIn: "8h" }
+    );
+
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 8 * 60 * 60 * 1000,
+    });
+
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Internal server error" });
+  }
+});
+
+app.get("/api/auth/me", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as any).user.id;
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "User not found" });
+    }
+
+    res.json({
+      authenticated: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Internal server error" });
+  }
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  res.clearCookie("token");
+  res.json({ status: "ok", message: "Logged out" });
+});
+
+// Apply requireAuth to all clinical routes
+app.use("/api/patients", requireAuth);
+app.use("/api/wounds", requireAuth);
+app.use("/api/assessments", requireAuth);
+app.use("/api/upload", requireAuth);
+app.use("/api/reports", requireAuth);
 
 // Patients
 app.get("/api/patients", async (req, res) => {
@@ -269,6 +379,67 @@ app.get("/api/assessments", async (req, res) => {
   }
 });
 
+app.patch("/api/assessments/:id/verify", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ status: "error", error: "INVALID_INPUT", message: "Invalid ID" });
+    }
+
+    const { verifiedResult } = req.body;
+    if (!verifiedResult) {
+      return res.status(400).json({ status: "error", error: "INVALID_INPUT", message: "Missing verifiedResult" });
+    }
+
+    const assessment = await prisma.assessment.findUnique({ where: { id } });
+    if (!assessment) {
+      return res.status(404).json({ status: "error", error: "NOT_FOUND", message: "Assessment not found" });
+    }
+
+    const updated = await prisma.assessment.update({
+      where: { id },
+      data: {
+        status: "VERIFIED",
+        verified: true,
+        verifiedResult: verifiedResult
+      }
+    });
+
+    res.json({ status: "ok", assessment: updated });
+  } catch (error) {
+    console.error("Verification error:", error);
+    res.status(500).json({ status: "error", error: "INTERNAL_ERROR", message: "Failed to verify assessment" });
+  }
+});
+
+app.get("/api/dashboard/summary", async (req, res) => {
+  try {
+    const totalPatients = await prisma.patient.count();
+    const activeWounds = await prisma.wound.count();
+    const pendingReview = await prisma.assessment.count({ where: { status: "COMPLETED" } });
+    const verifiedAssessments = await prisma.assessment.count({ where: { verified: true } });
+    const recentAssessments = await prisma.assessment.findMany({
+      take: 5,
+      orderBy: { createdAt: "desc" },
+      include: { wound: { include: { patient: true } } }
+    });
+
+    res.json({
+      status: "ok",
+      data: {
+        totalPatients,
+        activeWounds,
+        pendingReview,
+        verifiedAssessments,
+        recentAssessments
+      }
+    });
+  } catch (error) {
+    console.error("Dashboard summary error:", error);
+    res.status(500).json({ status: "error", error: "INTERNAL_ERROR", message: "Failed to load dashboard summary" });
+  }
+});
+
 // Clinical Report — deterministic backend-generated view of persisted data
 app.get("/api/reports/:assessmentId", async (req, res) => {
   try {
@@ -427,6 +598,36 @@ app.get("/api/reports/:assessmentId", async (req, res) => {
       error: "INTERNAL_ERROR",
       message: "Failed to generate report.",
     });
+  }
+});
+
+app.get("/api/reports", async (req, res) => {
+  try {
+    const assessments = await prisma.assessment.findMany({
+      where: {
+        status: {
+          in: ["COMPLETED", "VERIFIED"]
+        }
+      },
+      include: {
+        wound: {
+          include: {
+            patient: true
+          }
+        }
+      },
+      orderBy: {
+        assessmentDate: 'desc'
+      }
+    });
+
+    res.json({
+      status: "ok",
+      reports: assessments
+    });
+  } catch (error) {
+    console.error("GET /reports Error:", error);
+    res.status(500).json({ status: "error", error: "Internal Server Error" });
   }
 });
 
@@ -626,7 +827,9 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
                 total_perimeter_cm: aiAnalysis.total_perimeter_cm,
                 overall_color_hex: aiAnalysis.overall_color_hex,
                 color_classification: aiAnalysis.overall_color_classification,
-                wounds: aiAnalysis.wounds
+                wounds: aiAnalysis.wounds,
+                calibration: aiAnalysis.calibration,
+                physical_measurement_available: aiAnalysis.physical_measurement_available
             };
         }
 

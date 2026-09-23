@@ -40,7 +40,23 @@ model Assessment {
   woundDetected     Boolean?
   notes             String?
   status            String   @default("PENDING")
+  verified          Boolean  @default(false)
+  verifiedResult    Json?
   createdAt         DateTime @default(now())
 
   wound             Wound    @relation(fields: [woundId], references: [id])
+}
+
+enum UserRole {
+  DOCTOR
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String
+  role         UserRole @default(DOCTOR)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }

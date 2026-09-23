@@ -42,6 +42,8 @@ class AnalyzeWoundResponse(BaseModel):
     inference_time_ms: dict[str, float] = {}
     message: str = ""
     annotated_image_base64: str | None = None
+    calibration: dict | None = None
+    physical_measurement_available: bool = False
 
 class ErrorDetails(BaseModel):
     code: str

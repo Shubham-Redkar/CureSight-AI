@@ -11,7 +11,7 @@ from api.services.segmentation_validator import SegmentationValidator
 from api.services.unet_segmenter import UNetSegmenter
 from api.services.wound_gate import WoundGate
 from api.services.yolo_detector import YoloDetector
-
+from api.services.calibration import CalibrationDetector
 
 class MLPipeline:
     """
@@ -57,6 +57,8 @@ class MLPipeline:
             max_area_ratio=ml_cfg.get("max_mask_ratio", 0.98)
         )
         
+        self.calibration_detector = CalibrationDetector(self.config)
+        
         # Load available models
         self.wound_gate.load()
         self.yolo.load()
@@ -75,6 +77,7 @@ class MLPipeline:
             "measurements": None,
             "segmentation_valid": False,
             "mask_path": None, # If we were to save it
+            "calibration": None
         }
         
         if not os.path.exists(image_path):
@@ -91,6 +94,65 @@ class MLPipeline:
                 "reasons": iq_result["reasons"]
             }
             
+        # 1.55 Calibration Detection
+        orig_img = cv2.imread(image_path)
+        
+        cal_res = None
+        if orig_img is not None:
+            cal_res = self.calibration_detector.detect(orig_img)
+            
+        calib_cfg = getattr(cfg, "calibration", None)
+        demo_cfg = getattr(calib_cfg, "demo", None) if calib_cfg else None
+        demo_enabled = getattr(demo_cfg, "enabled", False) if demo_cfg else False
+        demo_pixels = getattr(demo_cfg, "default_pixels_per_cm", 25.0) if demo_cfg else 25.0
+
+        if cal_res and cal_res.get("detected"):
+            calibration_result = cal_res
+            calibration_result["source"] = "automatic"
+            pixels_per_cm = cal_res.get("pixels_per_cm")
+        elif pixels_per_cm is not None:
+            calibration_result = {
+                "source": "manual",
+                "detected": False,
+                "pixels_per_cm": pixels_per_cm,
+                "marker_width_px": None,
+                "marker_height_px": None,
+                "marker_width_cm": None,
+                "marker_height_cm": None,
+                "confidence": None,
+                "reason": "MANUAL_DEMONSTRATION",
+                "label": "Manual — Demonstration"
+            }
+        elif demo_enabled:
+            calibration_result = {
+                "source": "demo",
+                "detected": False,
+                "pixels_per_cm": demo_pixels,
+                "marker_width_px": None,
+                "marker_height_px": None,
+                "marker_width_cm": None,
+                "marker_height_cm": None,
+                "confidence": None,
+                "reason": "DEMO_FALLBACK",
+                "label": "Default Demonstration Scale"
+            }
+            pixels_per_cm = demo_pixels
+        else:
+            calibration_result = {
+                "source": "none",
+                "detected": False,
+                "pixels_per_cm": None,
+                "marker_width_px": None,
+                "marker_height_px": None,
+                "marker_width_cm": None,
+                "marker_height_cm": None,
+                "confidence": None,
+                "reason": "CALIBRATION_MARKER_NOT_FOUND" if orig_img is not None else "FAILED_TO_LOAD_IMAGE"
+            }
+            pixels_per_cm = None
+            
+        response["calibration"] = calibration_result
+            
         # 1.6 Resize if necessary after quality validation
         limits = getattr(cfg, "api_limits", None)
         max_w = getattr(limits, "max_image_width", 4096) if limits else 4096
@@ -104,12 +166,18 @@ class MLPipeline:
             if orig_w > orig_h:
                 new_h = round((orig_h * max_w) / orig_w)
                 new_w = max_w
+                ratio = new_w / orig_w
             else:
                 new_w = round((orig_w * max_h) / orig_h)
                 new_h = max_h
+                ratio = new_h / orig_h
                 
             resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
             cv2.imwrite(image_path, resized)
+            
+            # Scale the calibration to match the resized image
+            if pixels_per_cm is not None:
+                pixels_per_cm *= ratio
             
         # 1. Wound Gate
         if self.wound_gate.required and not self.wound_gate.is_loaded:

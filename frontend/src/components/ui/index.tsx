@@ -125,18 +125,22 @@ export const Select: React.FC<SelectProps> = ({ label, error, children, classNam
 // ==========================================
 interface CardProps {
   title?: React.ReactNode;
+  subtitle?: React.ReactNode;
   headerAction?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
 }
 
-export const Card: React.FC<CardProps> = ({ title, headerAction, children, className = '' }) => {
+export const Card: React.FC<CardProps> = ({ title, subtitle, headerAction, children, className = '' }) => {
   return (
     <div className={`bg-white border border-slate-200 rounded-lg shadow-2xs ${className}`}>
-      {(title || headerAction) && (
+      {(title || subtitle || headerAction) && (
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <div className="font-semibold text-slate-800 text-sm md:text-base">{title}</div>
-          <div>{headerAction}</div>
+          <div>
+            {title && <div className="font-semibold text-slate-800 text-sm md:text-base">{title}</div>}
+            {subtitle && <div className="text-xs text-slate-500 mt-0.5">{subtitle}</div>}
+          </div>
+          {headerAction && <div>{headerAction}</div>}
         </div>
       )}
       <div className="p-5">{children}</div>

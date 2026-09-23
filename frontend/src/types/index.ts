@@ -25,12 +25,14 @@ export interface Wound {
 }
 
 export interface Measurement {
+  woundCount: number;
   areaCm2: number | null;
   lengthCm: number | null;
   widthCm: number | null;
   granulationTissuePct: number | null;
   sloughTissuePct: number | null;
   escharTissuePct: number | null;
+  woundsList?: any[];
 }
 
 export interface Assessment {
@@ -44,6 +46,7 @@ export interface Assessment {
   notes?: string | null;
   status: string;
   createdAt?: string;
+  verified?: boolean;
   
   // UI fields mapping for legacy support in components
   imageUrl?: string;
@@ -55,6 +58,7 @@ export interface Assessment {
     measurements: Measurement;
     tissueAnalysis: string; // Textual description
     healingStatus: 'Improving' | 'Stable' | 'Requires Attention' | 'Unavailable' | 'Insufficient historical data';
+    calibration?: any;
   };
 
   verifiedResult?: {
@@ -65,7 +69,7 @@ export interface Assessment {
   };
 }
 
-export interface MedicalReport {
+export interface ClinicalReport {
   id: string;
   patientId: string;
   woundId: string;

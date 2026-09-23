@@ -1,7 +1,7 @@
-import React from 'react';
-import { useWounds } from '../context/WoundContext';
+import React, { useState, useEffect } from 'react';
 import { Card, Badge, Button } from '../components/ui';
 import { Plus, Users, ShieldAlert, Activity, CheckCircle, ArrowRight, ClipboardCheck } from 'lucide-react';
+import { apiFetch } from '../utils/api';
 
 interface DashboardProps {
   setActiveTab: (tab: string) => void;
@@ -16,19 +16,34 @@ export const Dashboard: React.FC<DashboardProps> = ({
   setSelectedWoundId,
   setSelectedAssessmentId,
 }) => {
-  const { patients, wounds, assessments } = useWounds();
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Metrics calculation
-  const totalPatients = patients.length;
-  const activeWounds = wounds.length;
-  
-  const pendingAssessments = assessments.filter(
-    a => a.status === 'Pending Analysis' || a.status === 'Pending Verification' || a.status === 'Analysis Completed'
-  ).length;
-  
-  const completedAssessments = assessments.filter(a => a.status === 'Verified').length;
+  useEffect(() => {
+    let isMounted = true;
+    const fetchDashboard = async () => {
+      try {
+        setLoading(true);
+        const res = await apiFetch('/api/dashboard/summary');
+        if (!res.ok) throw new Error("Unable to load dashboard statistics.");
+        const data = await res.json();
+        if (isMounted) setStats(data.data);
+      } catch (err: any) {
+        if (isMounted) setError(err.message || "Unable to load dashboard statistics.");
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    fetchDashboard();
+    return () => { isMounted = false; };
+  }, []);
 
-  const recentAssessments = assessments.slice(0, 5);
+  const totalPatients = stats?.totalPatients || 0;
+  const activeWounds = stats?.activeWounds || 0;
+  const pendingAssessments = stats?.pendingReview || 0;
+  const completedAssessments = stats?.verifiedAssessments || 0;
+  const recentAssessments = stats?.recentAssessments || [];
 
   const getHealingBadge = (status: string) => {
     switch (status) {
@@ -53,24 +68,30 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const handleAction = (assessment: any) => {
-    // Find the wound to navigate properly
-    const wound = wounds.find(w => w.id === assessment.woundId);
-    if (wound) {
-      setSelectedPatientId(String(wound.patientId));
+    if (assessment.wound) {
+      setSelectedPatientId(String(assessment.wound.patientId));
     }
     setSelectedWoundId(String(assessment.woundId));
     setSelectedAssessmentId(String(assessment.id));
     setActiveTab('assessment');
   };
 
+  if (loading) {
+    return <div className="text-center py-12 text-slate-500">Loading dashboard...</div>;
+  }
+
+  if (error) {
+    return <div className="text-center py-12 text-red-500">{error}</div>;
+  }
+
   return (
     <div className="space-y-6">
       {/* HEADER SECTION */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900 m-0 tracking-tight">Clinical Dashboard</h2>
+          <h2 className="text-xl font-bold text-slate-900 m-0 tracking-tight">CureSight AI</h2>
           <p className="text-xs text-slate-500 mt-1">
-            Real-time wound monitoring, AI-based segmentation tracking, and clinician-verified progress diagnostics.
+            AI-powered wound assessment and progress monitoring
           </p>
         </div>
         <Button
@@ -131,7 +152,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <CheckCircle className="w-5 h-5 text-emerald-755" />
             </div>
             <div className="min-w-0">
-              <div className="text-2xs font-semibold text-slate-500 uppercase tracking-wider">Verified Records</div>
+              <div className="text-2xs font-semibold text-slate-500 uppercase tracking-wider">Verified Assessments</div>
               <div className="text-lg md:text-2xl font-bold text-slate-950 mt-0.5">{completedAssessments}</div>
             </div>
           </div>
@@ -143,7 +164,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {recentAssessments.length === 0 ? (
           <div className="text-center py-12 flex flex-col items-center justify-center">
             <ClipboardCheck className="w-12 h-12 text-slate-350 stroke-1 mb-3" />
-            <h3 className="font-semibold text-slate-700 text-sm">No Assessments Filed Yet</h3>
+            <h3 className="font-semibold text-slate-700 text-sm">No assessments yet.</h3>
             <p className="text-xs text-slate-400 max-w-xs mt-1">
               To begin, register a patient in the Patients tab and start a clinical wound assessment.
             </p>
@@ -172,22 +193,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
-                {recentAssessments.map(item => {
-                  const wound = wounds.find(w => w.id === item.woundId);
+                {recentAssessments.map((item: any) => {
                   
                   // Healing status calculation
-                  const healingStatus = (item.status === 'Verified' 
+                  const healingStatus = (item.status === 'VERIFIED' || item.verified
                     ? item.verifiedResult?.healingStatus
-                    : item.aiResult?.healingStatus) ?? 'Unassessed';
+                    : item.measurements?.healingStatus) ?? 'Unassessed';
 
                   return (
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="py-3 px-5 font-mono font-medium text-slate-900">{wound?.patientId || '-'}</td>
+                      <td className="py-3 px-5 font-mono font-medium text-slate-900">{item.wound?.patient?.patientCode || '-'}</td>
                       <td className="py-3 px-5 font-mono text-slate-600">{item.woundId}</td>
-                      <td className="py-3 px-5">{item.assessmentDate}</td>
-                      <td className="py-3 px-5 font-medium text-slate-800">{wound?.location || 'Unspecified'}</td>
+                      <td className="py-3 px-5">{new Date(item.assessmentDate).toLocaleDateString()}</td>
+                      <td className="py-3 px-5 font-medium text-slate-800">{item.wound?.location || 'Unspecified'}</td>
                       <td className="py-3 px-5">{getHealingBadge(healingStatus)}</td>
-                      <td className="py-3 px-5">{getReviewBadge(item.status)}</td>
+                      <td className="py-3 px-5">{getReviewBadge(item.status === 'VERIFIED' ? 'Verified' : 'Pending Review')}</td>
                       <td className="py-3 px-5 text-right">
                         <Button
                           variant="ghost"
@@ -195,7 +215,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           onClick={() => handleAction(item)}
                           className="text-teal-700 hover:text-teal-900 hover:bg-teal-50/50 py-1 px-2.5 cursor-pointer font-medium"
                         >
-                          {item.status === 'Verified' ? 'View' : 'Review'}
+                          {item.status === 'VERIFIED' || item.verified ? 'View' : 'Review'}
                         </Button>
                       </td>
                     </tr>

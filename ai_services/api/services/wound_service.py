@@ -73,7 +73,7 @@ def process_wound_image(
     
     # Global measurements
     meas = result.get("measurements", {})
-    if meas and meas.get("physical") and pixels_per_cm:
+    if meas and meas.get("physical"):
         total_area = meas["physical"].get("area_cm2")
         total_perimeter = meas["physical"].get("perimeter_cm")
         
@@ -107,7 +107,7 @@ def process_wound_image(
         logger.warning(f"[{request_id}] Failed to annotate image: {e}")
     
     for i, roi_meas in enumerate(roi_measurements):
-        phys = roi_meas.get("physical", {}) if pixels_per_cm else {}
+        phys = roi_meas.get("physical") or {}
         
         w = PerWoundResponse(
             wound_id=i + 1,
@@ -138,5 +138,7 @@ def process_wound_image(
         overall_color_classification=None,
         inference_time_ms=timing,
         message="Wound analysis completed successfully.",
-        annotated_image_base64=annotated_image_base64
+        annotated_image_base64=annotated_image_base64,
+        calibration=result.get("calibration"),
+        physical_measurement_available=result.get("calibration", {}).get("pixels_per_cm") is not None
     )

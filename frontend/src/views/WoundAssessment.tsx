@@ -14,7 +14,7 @@ import type { Measurement } from '../types';
 
 const formatMeasurement = (value: number | null | undefined, decimals = 2) => {
   if (value === null || value === undefined || isNaN(Number(value))) {
-    return 'N/A';
+    return 'Not available';
   }
   return Number(value).toFixed(decimals);
 };
@@ -76,10 +76,14 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
   const [verifiedHealingStatus, setVerifiedHealingStatus] = useState<'Improving' | 'Stable' | 'Requires Attention' | 'Unavailable' | 'Insufficient historical data' | ''>('');
   
   // Calibration state
-  const [pixelsPerCm, setPixelsPerCm] = useState<string>('');
+  const [showAdvancedCalibration, setShowAdvancedCalibration] = useState<boolean>(false);
+  const [calibrationMode, setCalibrationMode] = useState<'automatic' | 'manual'>('automatic');
+  const [pixelsPerCm, setPixelsPerCm] = useState<string>('25');
+  const [manualCalibrationConfirmed, setManualCalibrationConfirmed] = useState<boolean>(false);
   
   // Track modified measurements manually
   const [verifiedMeasurements, setVerifiedMeasurements] = useState<Measurement>({
+    woundCount: 0,
     areaCm2: null,
     lengthCm: null,
     widthCm: null,
@@ -97,6 +101,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
   useEffect(() => {
     if (!selectedAssessmentId) {
       setVerifiedMeasurements({
+        woundCount: 0,
         areaCm2: null,
         lengthCm: null,
         widthCm: null,
@@ -195,7 +200,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
     setAnalysisProgress('Running AI Pipeline...');
     setIsLoading(true);
 
-    const calibrationValue = pixelsPerCm && !isNaN(parseFloat(pixelsPerCm)) && parseFloat(pixelsPerCm) > 0 
+    const calibrationValue = calibrationMode === 'manual' && manualCalibrationConfirmed && pixelsPerCm && !isNaN(parseFloat(pixelsPerCm)) && parseFloat(pixelsPerCm) > 0 
       ? parseFloat(pixelsPerCm) 
       : undefined;
 
@@ -246,7 +251,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
       <div>
         <h2 className="text-xl font-bold text-slate-900 m-0 tracking-tight">Wound Assessment</h2>
         <p className="text-xs text-slate-500 mt-1">
-          Perform clinical photography assessments. Capture or upload wound imagery to trigger YOLO/U-Net boundary calculations.
+          AI-assisted wound detection, segmentation, and physical measurement.
         </p>
       </div>
 
@@ -280,7 +285,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                 <option value="">-- Choose Anatomical Site --</option>
                 {patientWounds.map(w => (
                   <option key={w.id} value={w.id}>
-                    {w.location} ({w.description || 'N/A'})
+                    {w.location} ({w.description || 'Unspecified'})
                   </option>
                 ))}
               </Select>
@@ -407,20 +412,27 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
           {/* QUALITY GUIDANCE (1/3 width) */}
           <div className="space-y-4">
             <Card title="Photography Guidance">
-              <div className="space-y-3.5 text-xs text-slate-600">
-                <div className="flex gap-2.5 items-start">
-                  <div className="bg-teal-50 p-1 rounded-full text-teal-700 mt-0.5 shrink-0">
-                    <Info className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <h5 className="font-semibold text-slate-800">Lighting & Shadows</h5>
-                    <p className="text-[11px] text-slate-550 mt-0.5">Ensure even, diffused clinical room illumination. Avoid direct camera flash to reduce reflection highlights on tissue.</p>
-                  </div>
+              <div className="space-y-4 text-xs text-slate-600">
+                <div className="bg-slate-50 border border-slate-200 p-3 rounded-md">
+                  <h5 className="font-bold text-slate-800 flex items-center gap-1.5 mb-2">
+                    <Info className="w-4 h-4 text-teal-600" />
+                    Calibration Marker Required
+                  </h5>
+                  <p className="text-[11px] text-slate-600 mb-2 leading-relaxed">
+                    Physical measurements in cm/cm² require a valid physical scale reference. Without a confidently detected calibration marker, CureSight AI will not generate physical measurements.
+                  </p>
+                  <ul className="text-[11px] space-y-1.5 text-slate-700 list-disc pl-4">
+                    <li><strong className="text-slate-800">Physical Size:</strong> Exactly 2 cm × 2 cm</li>
+                    <li><strong className="text-slate-800">Shape:</strong> Perfect square</li>
+                    <li><strong className="text-slate-800">Color:</strong> Solid high-contrast green</li>
+                    <li><strong className="text-slate-800">Placement:</strong> Same physical plane as the wound</li>
+                    <li><strong className="text-slate-800">Visibility:</strong> Fully visible (do not cover or obscure)</li>
+                  </ul>
                 </div>
 
                 <div className="flex gap-2.5 items-start">
                   <div className="bg-teal-50 p-1 rounded-full text-teal-700 mt-0.5 shrink-0">
-                    <Info className="w-3.5 h-3.5" />
+                    <AlertCircle className="w-3.5 h-3.5" />
                   </div>
                   <div>
                     <h5 className="font-semibold text-slate-800">Angle & Orientation</h5>
@@ -430,11 +442,11 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
 
                 <div className="flex gap-2.5 items-start">
                   <div className="bg-teal-50 p-1 rounded-full text-teal-700 mt-0.5 shrink-0">
-                    <Info className="w-3.5 h-3.5" />
+                    <Sparkles className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <h5 className="font-semibold text-slate-800">Focus & Resolution</h5>
-                    <p className="text-[11px] text-slate-550 mt-0.5">Focus explicitly on the wound bed margin. Blurry pixels degrade U-Net boundary accuracy.</p>
+                    <h5 className="font-semibold text-slate-800">Focus & Lighting</h5>
+                    <p className="text-[11px] text-slate-550 mt-0.5">Ensure even, diffused clinical room illumination. Focus explicitly on the wound bed margin. Blurry pixels degrade boundary accuracy.</p>
                   </div>
                 </div>
               </div>
@@ -447,7 +459,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
       {currentStep === 'analysis' && activePatient && activeWound && (
         <div className="space-y-6">
           {/* BACK TO SELECTION BUTTON */}
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-4">
             <Button
               variant="secondary"
               size="sm"
@@ -455,21 +467,21 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                 setSelectedAssessmentId(null);
                 setCurrentStep('select');
               }}
-              className="cursor-pointer"
+              className="cursor-pointer shrink-0"
             >
               <RotateCcw className="w-3.5 h-3.5 mr-1" />
               New Assessment
             </Button>
-            <div className="flex gap-2 text-xs">
+            <div className="flex gap-4 text-sm bg-slate-50 border border-slate-200 px-4 py-3 rounded-md shadow-sm w-full">
               {activeAssessment && (
                 <>
-                  <span className="font-mono text-slate-500">Record: {activeAssessment.id}</span>
-                  <span className="text-slate-400">|</span>
+                  <div className="flex items-center gap-1.5"><span className="text-slate-500">Assessment:</span><span className="font-semibold text-slate-800">{activeAssessment.id}</span></div>
+                  <span className="text-slate-300">|</span>
                 </>
               )}
-              <span className="font-mono text-slate-500">Patient: {activePatient.id}</span>
-              <span className="text-slate-400">|</span>
-              <span className="font-mono text-slate-500">Location: {activeWound.location}</span>
+              <div className="flex items-center gap-1.5"><span className="text-slate-500">Patient:</span><span className="font-semibold text-slate-800">{activePatient.patientCode || activePatient.id}</span></div>
+              <span className="text-slate-300">|</span>
+              <div className="flex items-center gap-1.5"><span className="text-slate-500">Location:</span><span className="font-semibold text-slate-800">{activeWound.location}</span></div>
             </div>
           </div>
 
@@ -484,7 +496,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                 <div>
                   <h3 className="font-semibold text-slate-800 text-sm">Processing Wound Architecture</h3>
                   <p className="text-xs text-slate-500 max-w-xs mx-auto mt-1">
-                    YOLO detecting boundaries, U-Net segmenting tissue matrices, and OpenCV calculating area.
+                    Detecting wound boundaries, segmenting tissue matrices, and calculating physical area.
                   </p>
                 </div>
                 {analysisProgress && (
@@ -495,26 +507,99 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                 )}
                 
                 {/* Calibration Input */}
-                <div className="w-full max-w-xs mt-4 text-left space-y-1.5">
-                  <Input
-                    label="Pixels per cm (Calibration)"
-                    type="number"
-                    step="0.1"
-                    min="0.1"
-                    placeholder="e.g. 45.5"
-                    value={pixelsPerCm}
-                    onChange={(e) => setPixelsPerCm(e.target.value)}
-                    disabled={isLoading}
-                  />
-                  <p className="text-2xs text-slate-400 leading-tight">
-                    Required for physical cm measurements. Without calibration, physical measurements may be unavailable.
-                  </p>
+                <div className="w-full max-w-sm mt-6 text-left border border-slate-200 rounded-md p-3 bg-slate-50">
+                  <div className="flex justify-between items-center mb-2">
+                    <div className="text-sm font-semibold text-slate-800">Physical Measurement Calibration</div>
+                    <button 
+                      type="button" 
+                      onClick={() => setShowAdvancedCalibration(!showAdvancedCalibration)}
+                      className="text-xs text-teal-600 hover:text-teal-800"
+                    >
+                      {showAdvancedCalibration ? 'Hide advanced' : 'Advanced'}
+                    </button>
+                  </div>
+                  
+                  {!showAdvancedCalibration ? (
+                    <div className="text-xs text-slate-600">
+                      The system will automatically detect a physical calibration marker. If no marker is found, it will use the configured demonstration scale.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-3 mt-3">
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input 
+                            type="radio" 
+                            name="calMode" 
+                            value="automatic" 
+                            className="mt-0.5"
+                            checked={calibrationMode === 'automatic'}
+                            onChange={() => setCalibrationMode('automatic')}
+                          />
+                          <div>
+                            <div className="text-sm font-medium text-slate-700">Automatic / Demo Fallback</div>
+                            <div className="text-xs text-slate-500">Detect a known physical reference marker, or fallback to default demo scale.</div>
+                          </div>
+                        </label>
+
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input 
+                            type="radio" 
+                            name="calMode" 
+                            value="manual" 
+                            className="mt-0.5"
+                            checked={calibrationMode === 'manual'}
+                            onChange={() => setCalibrationMode('manual')}
+                          />
+                          <div>
+                            <div className="text-sm font-medium text-slate-700">Explicit Manual Calibration</div>
+                            <div className="text-xs text-slate-500">For demonstration/testing only. Overrides demo fallback.</div>
+                          </div>
+                        </label>
+                      </div>
+
+                      {calibrationMode === 'manual' && (
+                        <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-md space-y-3">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">Manual scale</label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="number"
+                                step="0.1"
+                                min="0.1"
+                                placeholder="25"
+                                value={pixelsPerCm}
+                                onChange={(e) => setPixelsPerCm(e.target.value)}
+                                disabled={isLoading}
+                              />
+                              <span className="text-sm text-slate-600">px/cm</span>
+                            </div>
+                          </div>
+                          
+                          <div className="text-xs text-amber-800 font-medium flex gap-1.5 items-start">
+                            <span className="text-amber-600">⚠</span>
+                            <p>Manual calibration is for demonstration/testing only. The scale is supplied by the user and is not derived from a physical reference in the photograph.</p>
+                          </div>
+
+                          <label className="flex items-start gap-2 cursor-pointer mt-2">
+                            <input 
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={manualCalibrationConfirmed}
+                              onChange={(e) => setManualCalibrationConfirmed(e.target.checked)}
+                              disabled={isLoading}
+                            />
+                            <span className="text-xs text-slate-700">I understand that this measurement uses a demonstration scale and is not photograph-derived physical calibration.</span>
+                          </label>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
 
                 <Button
                   onClick={handleStartAnalysis}
-                  disabled={isLoading}
-                  className="mt-2 bg-teal-700 text-white cursor-pointer"
+                  disabled={isLoading || (calibrationMode === 'manual' && !manualCalibrationConfirmed)}
+                  className="mt-2 bg-teal-700 text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isLoading ? 'Running...' : 'Start Diagnostic Analysis'}
                 </Button>
@@ -529,7 +614,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
               {/* IMAGE DISPLAY PANEL (7/12 cols) */}
               <div className="lg:col-span-7 space-y-4">
                 <Card
-                  title="Wound Inspection Viewer"
+                  title="Wound image"
                   headerAction={
                     <div className="flex gap-2">
                       <Button
@@ -537,24 +622,27 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                         variant={showYoloBox ? 'primary' : 'secondary'}
                         onClick={() => setShowYoloBox(!showYoloBox)}
                         className="text-[10px] py-1 px-2 cursor-pointer"
+                        title="Shows detected wound regions."
                       >
-                        YOLO BBox
+                        Bounding box
                       </Button>
                       <Button
                         size="sm"
                         variant={showUnetMask ? 'primary' : 'secondary'}
                         onClick={() => setShowUnetMask(!showUnetMask)}
                         className="text-[10px] py-1 px-2 cursor-pointer"
+                        title="Shows the wound boundary identified by the segmentation model."
                       >
-                        U-Net Mask
+                        Segmentation mask
                       </Button>
                       <Button
                         size="sm"
                         variant={showMeasurements ? 'primary' : 'secondary'}
                         onClick={() => setShowMeasurements(!showMeasurements)}
                         className="text-[10px] py-1 px-2 cursor-pointer"
+                        title="Displays physical size estimates."
                       >
-                        Ruler
+                        Measurement ruler
                       </Button>
                     </div>
                   }
@@ -589,7 +677,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
               <div className="lg:col-span-5 space-y-6">
                 
                 {/* AI FINDINGS PANEL */}
-                <Card title="AI Diagnostics Panel (YOLO/U-Net)">
+                <Card title="AI analysis" subtitle="Automated wound detection and segmentation">
                   {activeAssessment.status === 'Analysis Failed' ? (
                     <div className="text-center py-6 text-red-600 bg-red-50 border border-red-200 rounded-md">
                       <div className="font-bold text-sm mb-1">Analysis failed</div>
@@ -600,7 +688,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                       {/* STATS PANEL */}
                       <div className="grid grid-cols-3 gap-2.5">
                         <div className="bg-slate-50 border border-slate-100 rounded-md p-2.5 text-center flex flex-col justify-center">
-                          <div className="text-[10px] text-slate-500 font-semibold uppercase">Wound Area</div>
+                          <div className="text-[10px] text-slate-500 font-semibold uppercase">Wound area</div>
                           <div className="text-sm font-bold text-slate-900 mt-0.5">
                             {activeAssessment.aiResult.measurements.areaCm2 !== null ? (
                               <>{formatMeasurement(activeAssessment.aiResult.measurements.areaCm2)} <span className="text-2xs font-normal">cm²</span></>
@@ -612,7 +700,9 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                         <div className="bg-slate-50 border border-slate-100 rounded-md p-2.5 text-center flex flex-col justify-center">
                           <div className="text-[10px] text-slate-500 font-semibold uppercase">Dimensions</div>
                           <div className="text-xs font-bold text-slate-900 mt-1">
-                            {activeAssessment.aiResult.measurements.lengthCm !== null && activeAssessment.aiResult.measurements.widthCm !== null ? (
+                            {activeAssessment.aiResult.measurements.woundCount > 1 ? (
+                              <span className="font-normal text-slate-500 text-[11px]">Multiple wounds detected</span>
+                            ) : activeAssessment.aiResult.measurements.lengthCm !== null && activeAssessment.aiResult.measurements.widthCm !== null ? (
                               <>{formatMeasurement(activeAssessment.aiResult.measurements.lengthCm)} × {formatMeasurement(activeAssessment.aiResult.measurements.widthCm)} <span className="text-[9px] font-normal">cm</span></>
                             ) : (
                               <span className="font-normal text-slate-500">Not available</span>
@@ -620,7 +710,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                           </div>
                         </div>
                         <div className="bg-slate-50 border border-slate-100 rounded-md p-2.5 text-center flex flex-col justify-center">
-                          <div className="text-[10px] text-slate-500 font-semibold uppercase">Confidence</div>
+                          <div className="text-[10px] text-slate-500 font-semibold uppercase">Detection confidence</div>
                           <div className="text-sm font-bold text-teal-700 mt-0.5">
                             {activeAssessment.aiResult.detectionConfidence !== null ? (
                               <>{formatConfidence(activeAssessment.aiResult.detectionConfidence)}</>
@@ -635,13 +725,78 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                       <div className="text-xs text-slate-655 bg-slate-50/50 border border-slate-200 rounded-md p-3 space-y-2">
                         <div className="font-semibold text-slate-800 flex items-center gap-1.5">
                           <Sparkles className="w-3.5 h-3.5 text-teal-700" />
-                          Automated Segmentation Report:
+                          Analysis status:
                         </div>
-                        <p className="leading-relaxed">{activeAssessment.aiResult.tissueAnalysis}</p>
+                        <p className="leading-relaxed">
+                          {activeAssessment.aiResult.measurements.woundCount > 0 ? (
+                            <span className="text-teal-700 font-medium">✓ Analysis completed successfully</span>
+                          ) : (
+                            <span className="text-slate-600 font-medium">No wound detected</span>
+                          )}
+                          <br />
+                          {activeAssessment.aiResult.tissueAnalysis}
+                        </p>
                       </div>
 
+                      {/* DETECTED WOUNDS (MULTI-WOUND) */}
+                      {activeAssessment.aiResult.measurements.woundCount > 1 && activeAssessment.aiResult.measurements.woundsList && (
+                        <div className="text-xs text-slate-655 bg-slate-50/50 border border-slate-200 rounded-md p-3 space-y-2">
+                          <div className="font-semibold text-slate-800 border-b border-slate-100 pb-1 mb-2">Detected Wounds</div>
+                          <div className="space-y-3">
+                            {activeAssessment.aiResult.measurements.woundsList.map((w: any, i: number) => (
+                              <div key={i} className="bg-white p-2 rounded border border-slate-100">
+                                <div className="font-semibold text-slate-700 mb-1">Wound {w.wound_id || i + 1}</div>
+                                <div className="grid grid-cols-3 gap-2">
+                                  <div><span className="text-slate-400">Length:</span> {formatMeasurement(w.length_cm)} cm</div>
+                                  <div><span className="text-slate-400">Width:</span> {formatMeasurement(w.width_cm)} cm</div>
+                                  <div><span className="text-slate-400">Area:</span> {formatMeasurement(w.area_cm2)} cm²</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* CALIBRATION DISPLAY */}
+                      {activeAssessment.aiResult.calibration && (
+                        <div className="text-xs bg-slate-50/50 border border-slate-200 rounded-md p-3 space-y-2">
+                          <div className="font-semibold text-slate-800 border-b border-slate-100 pb-1 mb-2">Measurement calibration</div>
+                          {activeAssessment.aiResult.calibration.source === 'automatic' ? (
+                            <div className="space-y-1">
+                              <div className="text-teal-700 font-semibold flex items-center gap-1.5">✓ Automatic physical marker detected</div>
+                              <div className="text-slate-655 flex justify-between"><span>Scale:</span> <span className="font-mono text-xs">{activeAssessment.aiResult.calibration.pixels_per_cm ? `${activeAssessment.aiResult.calibration.pixels_per_cm} px/cm` : 'Marker not detected'}</span></div>
+                              <div className="text-slate-655 flex justify-between"><span>Reference marker:</span> <span className="font-mono">{activeAssessment.aiResult.calibration.marker_width_cm} × {activeAssessment.aiResult.calibration.marker_height_cm} cm</span></div>
+                              <div className="text-slate-655 flex justify-between"><span>Confidence:</span> <span className="font-mono">{Math.round((activeAssessment.aiResult.calibration.confidence || 0) * 100)}%</span></div>
+                            </div>
+                          ) : activeAssessment.aiResult.calibration.source === 'demo' ? (
+                            <div className="space-y-1">
+                              <div className="text-slate-700 font-semibold">Default Demonstration Scale</div>
+                              <div className="text-slate-655 flex justify-between mb-1"><span>Scale:</span> <span className="font-mono text-xs">{activeAssessment.aiResult.calibration.pixels_per_cm ? `${activeAssessment.aiResult.calibration.pixels_per_cm} px/cm` : 'Marker not detected'}</span></div>
+                              <div className="text-amber-800 text-xs p-1.5 bg-amber-50 border border-amber-200 rounded mt-1">
+                                <span className="font-semibold text-amber-600">⚠ Demonstration measurement: </span>
+                                No physical calibration marker was detected. Using the configured demonstration scale for testing only.
+                              </div>
+                            </div>
+                          ) : activeAssessment.aiResult.calibration.source === 'manual' ? (
+                            <div className="space-y-1">
+                              <div className="text-slate-700 font-semibold">Manual — Demonstration</div>
+                              <div className="text-slate-655 flex justify-between mb-1"><span>Scale:</span> <span className="font-mono text-xs">{activeAssessment.aiResult.calibration.pixels_per_cm ? `${activeAssessment.aiResult.calibration.pixels_per_cm} px/cm` : 'Marker not detected'}</span></div>
+                              <div className="text-amber-800 text-xs p-1.5 bg-amber-50 border border-amber-200 rounded mt-1">
+                                <span className="font-semibold text-amber-600">⚠ Demonstration measurement: </span>
+                                scale supplied manually.
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              <div className="text-amber-600 font-semibold flex items-center gap-1.5">Physical measurements unavailable</div>
+                              <div className="text-slate-550">Calibration marker not detected.</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       <div className="flex justify-between items-center text-xs py-1 border-b border-slate-100">
-                        <span className="text-slate-500">Healing Status Assessment:</span>
+                        <span className="text-slate-500">Clinical healing assessment:</span>
                         <span className="font-semibold">{activeAssessment.aiResult.healingStatus}</span>
                       </div>
                     </div>
@@ -655,16 +810,17 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                   title={
                     <div className="flex items-center gap-2">
                       <FileCheck className="w-4 h-4 text-teal-700" />
-                      <span>Clinician Adjudication & Notes</span>
+                      <span>Clinical review</span>
                     </div>
                   }
+                  subtitle="Review and verify the automated measurements before saving the assessment."
                 >
                   {activeAssessment.status === 'Verified' ? (
                     <div className="space-y-4 text-xs">
                       <div className="bg-indigo-50 border border-indigo-100 rounded-md p-3 flex gap-2">
                         <CheckCircle className="w-4 h-4 text-indigo-700 shrink-0 mt-0.5" />
                         <div>
-                          <strong className="text-indigo-900 block text-xs">Assessed Record Finalized</strong>
+                          <strong className="text-indigo-900 block text-xs">Verification status: Verified</strong>
                           <span className="text-[11px] text-indigo-755 mt-0.5 block">
                             Verified on {activeAssessment.verifiedResult?.verifiedDate}
                           </span>
@@ -673,19 +829,19 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
 
                       <div className="space-y-2">
                         <div className="flex justify-between py-1 border-b border-slate-100">
-                          <span className="text-slate-500">Verified Healing Trend:</span>
+                          <span className="text-slate-500">Verified healing assessment:</span>
                           <span className="font-semibold text-slate-800">
                             {activeAssessment.verifiedResult?.healingStatus}
                           </span>
                         </div>
                         <div className="flex justify-between py-1 border-b border-slate-100">
-                          <span className="text-slate-500">Verified Wound Area:</span>
+                          <span className="text-slate-500">Verified wound area (cm²):</span>
                           <span className="font-semibold text-slate-800">
-                            {formatMeasurement(activeAssessment.verifiedResult?.measurements?.areaCm2)} cm²
+                            {formatMeasurement(activeAssessment.verifiedResult?.measurements?.areaCm2)}
                           </span>
                         </div>
                         <div className="flex justify-between py-1 border-b border-slate-100">
-                          <span className="text-slate-500">Verified Dimensions:</span>
+                          <span className="text-slate-500">Verified dimensions:</span>
                           <span className="font-semibold text-slate-800">
                             {formatMeasurement(activeAssessment.verifiedResult?.measurements?.lengthCm)} × {formatMeasurement(activeAssessment.verifiedResult?.measurements?.widthCm)} cm
                           </span>
@@ -693,7 +849,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                       </div>
 
                       <div className="bg-slate-50 rounded-md p-3 border border-slate-200">
-                        <div className="font-semibold text-slate-600 uppercase text-[9px] tracking-wider mb-1">Clinical Notes</div>
+                        <div className="font-semibold text-slate-600 uppercase text-[9px] tracking-wider mb-1">Clinical notes</div>
                         <p className="text-slate-800 italic leading-relaxed">
                           "{activeAssessment.verifiedResult?.clinicalNotes || 'No notes added.'}"
                         </p>
@@ -711,7 +867,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                     /* EDIT VERIFICATION FORM */
                     <form onSubmit={handleVerifySubmit} className="space-y-4">
                       <div className="bg-slate-50 border border-slate-200 rounded-md p-3 text-2xs text-slate-500">
-                        Review YOLO margins and U-Net segmentations. Adjust measurements below if clinical caliper metrics differ, then submit.
+                        Review AI-generated margins and segmentations. Adjust measurements below if clinical caliper metrics differ, then submit.
                       </div>
 
                       {/* STATS COMPARISON */}

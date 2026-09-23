@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useWounds } from '../context/WoundContext';
 import { Card, Badge, Button, Select } from '../components/ui';
 import { TrendingDown, Layers, Clock, TrendingUp, Info } from 'lucide-react';
-import type { Assessment } from '../types';
+import { apiFetch } from '../utils/api';
+import type { Patient, Wound, Assessment } from '../types';
 
 interface ProgressAnalysisProps {
   selectedPatientId: string | null;
@@ -19,20 +19,80 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
   setSelectedWoundId,
   setActiveTab,
 }) => {
-  const { patients, wounds, assessments } = useWounds();
+  // Data fetching states
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [patientWounds, setPatientWounds] = useState<Wound[]>([]);
+  const [woundAssessments, setWoundAssessments] = useState<Assessment[]>([]);
+  const [loading, setLoading] = useState(false);
 
   // Active select dropdown states
   const [activeCompareMode, setActiveCompareMode] = useState<'initial-latest' | 'previous-current' | 'custom'>('initial-latest');
   const [customLeftAssId, setCustomLeftAssId] = useState<string>('');
   const [customRightAssId, setCustomRightAssId] = useState<string>('');
 
-  const patientWounds = wounds.filter(w => w.patientId === Number(selectedPatientId));
-  const activeWound = wounds.find(w => w.id === Number(selectedWoundId));
+  useEffect(() => {
+    let isMounted = true;
+    apiFetch('/api/patients').then(res => res.json()).then(data => {
+      if (isMounted && data.status === 'ok') setPatients(data.patients || []);
+    }).catch(console.error);
+    return () => { isMounted = false; };
+  }, []);
 
-  // Retrieve assessments for the selected wound sorted chronologically (oldest to newest)
-  const woundAssessments = assessments
-    .filter(a => a.woundId === Number(selectedWoundId))
-    .sort((a, b) => new Date(a.assessmentDate).getTime() - new Date(b.assessmentDate).getTime());
+  useEffect(() => {
+    let isMounted = true;
+    if (selectedPatientId) {
+      setLoading(true);
+      apiFetch(`/api/wounds?patientId=${selectedPatientId}`).then(res => res.json()).then(data => {
+        if (isMounted && data.status === 'ok') setPatientWounds(data.wounds || []);
+        if (isMounted) setLoading(false);
+      }).catch(() => { if (isMounted) setLoading(false); });
+    } else {
+      setPatientWounds([]);
+    }
+    return () => { isMounted = false; };
+  }, [selectedPatientId]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (selectedWoundId) {
+      setLoading(true);
+      apiFetch(`/api/assessments?woundId=${selectedWoundId}`).then(res => res.json()).then(data => {
+        if (isMounted && data.status === 'ok') {
+          const mapped = data.assessments.map((assessment: any) => {
+            let aiResult = undefined;
+            if (assessment.status === 'COMPLETED' || assessment.status === 'VERIFIED') {
+               aiResult = {
+                   detectionConfidence: assessment.measurements?.wounds?.[0]?.detection_confidence ?? null,
+                   measurements: {
+                       woundCount: assessment.measurements?.wound_count ?? 0,
+                       areaCm2: assessment.measurements?.total_area_cm2 ?? null,
+                       lengthCm: assessment.measurements?.wounds?.[0]?.length_cm ?? null,
+                       widthCm: assessment.measurements?.wounds?.[0]?.width_cm ?? null,
+                       woundsList: assessment.measurements?.wounds ?? [],
+                   },
+                   tissueAnalysis: assessment.notes || 'Analysis complete',
+                   healingStatus: 'Unavailable',
+                   calibration: assessment.measurements?.calibration || null
+               };
+            }
+            return {
+               ...assessment,
+               imageUrl: assessment.imageKey ? `/api/images/${assessment.imageKey}` : undefined,
+               aiResult,
+            };
+          });
+          const sorted = mapped.sort((a: Assessment, b: Assessment) => new Date(a.assessmentDate).getTime() - new Date(b.assessmentDate).getTime());
+          setWoundAssessments(sorted);
+        }
+        if (isMounted) setLoading(false);
+      }).catch(() => { if (isMounted) setLoading(false); });
+    } else {
+      setWoundAssessments([]);
+    }
+    return () => { isMounted = false; };
+  }, [selectedWoundId]);
+
+  const activeWound = patientWounds.find(w => w.id === Number(selectedWoundId));
 
   // Set default comparison IDs when assessments change
   useEffect(() => {
@@ -40,7 +100,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
       setCustomLeftAssId(String(woundAssessments[0].id));
       setCustomRightAssId(String(woundAssessments[woundAssessments.length - 1].id));
     }
-  }, [selectedWoundId, assessments]);
+  }, [selectedWoundId, woundAssessments]);
 
   // Determine compare images based on mode
   let leftAssessment: Assessment | undefined;
@@ -60,21 +120,34 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
   }
 
   // Calculate trends
-  const getArea = (ass?: Assessment): number | null => {
+  const getAreaRaw = (ass?: Assessment): number | null => {
     if (!ass) return null;
-    return ass.verifiedResult ? ass.verifiedResult.measurements.areaCm2 : (ass.aiResult?.measurements.areaCm2 ?? null);
+    return ass.status === 'VERIFIED' || ass.verified ? (ass.verifiedResult?.measurements.areaCm2 ?? null) : (ass.aiResult?.measurements.areaCm2 ?? null);
+  };
+  const getAreaFormatted = (ass?: Assessment): string => {
+    const raw = getAreaRaw(ass);
+    return raw !== null ? `${raw.toFixed(2)} cm²` : 'Not available';
   };
 
-  const getDims = (ass?: Assessment) => {
-    if (!ass) return '';
-    const m = ass.verifiedResult ? ass.verifiedResult.measurements : ass.aiResult?.measurements;
-    return m ? `${m.lengthCm}x${m.widthCm} cm` : 'Unassessed';
+  const getDimsFormatted = (ass?: Assessment) => {
+    if (!ass) return 'Not available';
+    const m = ass.status === 'VERIFIED' || ass.verified ? ass.verifiedResult?.measurements : ass.aiResult?.measurements;
+    return m?.lengthCm != null && m?.widthCm != null ? `${Number(m.lengthCm).toFixed(2)} cm × ${Number(m.widthCm).toFixed(2)} cm` : 'Not available';
   };
 
-  const initialArea = getArea(woundAssessments[0]);
-  const currentArea = getArea(woundAssessments[woundAssessments.length - 1]);
-  const areaChangePct = (initialArea !== null && currentArea !== null && initialArea > 0) 
-    ? parseFloat((((currentArea - initialArea) / initialArea) * 100).toFixed(1)) 
+  const getCalibrationLabel = (ass?: Assessment) => {
+    if (!ass) return 'Unavailable';
+    const source = ass.aiResult?.calibration?.source;
+    if (source === 'automatic') return 'Automatic';
+    if (source === 'demo') return 'Demo — Demonstration';
+    if (source === 'manual') return 'Manual — Demonstration';
+    return 'Unavailable';
+  };
+
+  const initialAreaRaw = getAreaRaw(woundAssessments[0]);
+  const currentAreaRaw = getAreaRaw(woundAssessments[woundAssessments.length - 1]);
+  const areaChangePct = (initialAreaRaw !== null && currentAreaRaw !== null && initialAreaRaw > 0) 
+    ? parseFloat((((currentAreaRaw - initialAreaRaw) / initialAreaRaw) * 100).toFixed(1)) 
     : null;
   
   const overallTrend = areaChangePct === null
@@ -94,17 +167,17 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
     const padding = 30;
 
     // Get max/min areas for scaling
-    const validAssessments = woundAssessments.filter(a => getArea(a) !== null);
+    const validAssessments = woundAssessments.filter(a => getAreaRaw(a) !== null);
     if (validAssessments.length < 2) return null;
 
-    const areas = validAssessments.map(a => getArea(a) as number);
+    const areas = validAssessments.map(a => getAreaRaw(a) as number);
     const maxArea = Math.max(...areas, 5) * 1.15; // padding top
     const minArea = 0;
 
     // Map assessments to points
     const points = validAssessments.map((ass, i) => {
       const x = padding + (i * (width - 2 * padding)) / (validAssessments.length - 1);
-      const area = getArea(ass) as number;
+      const area = getAreaRaw(ass) as number;
       const y = height - padding - ((area - minArea) * (height - 2 * padding)) / (maxArea - minArea);
       return { x, y, area, date: ass.assessmentDate };
     });
@@ -161,6 +234,14 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* HEADER */}
+      <div>
+        <h2 className="text-xl font-bold text-slate-900 m-0 tracking-tight">Progress Analysis</h2>
+        <p className="text-xs text-slate-500 mt-1">
+          Review wound measurements and assessment history over time.
+        </p>
+      </div>
+
       {/* SELECTION BAR */}
       <Card className="p-4 bg-white border-slate-200">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -174,7 +255,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
           >
             <option value="">-- Choose Patient ID --</option>
             {patients.map(p => (
-              <option key={p.id} value={p.id}>{p.id}</option>
+              <option key={p.id} value={p.id}>{p.patientCode || p.id}</option>
             ))}
           </Select>
 
@@ -186,12 +267,12 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
           >
             <option value="">-- Choose Anatomical Site --</option>
             {patientWounds.map(w => (
-              <option key={w.id} value={w.id}>{w.location} ({w.description || 'N/A'})</option>
+              <option key={w.id} value={w.id}>{w.location} ({w.description || 'Unspecified'})</option>
             ))}
           </Select>
 
           <div className="text-xs text-slate-400 font-medium pb-1 text-center md:text-right">
-            {activeWound ? `Tracking Classification: ${activeWound.description || 'N/A'}` : 'Choose anatomical parameters to trace diagnostics.'}
+            {activeWound ? `Tracking Classification: ${activeWound.description || 'Unspecified'}` : 'Choose anatomical parameters to trace diagnostics.'}
           </div>
         </div>
       </Card>
@@ -204,6 +285,10 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
           <p className="text-xs text-slate-400 max-w-xs mx-auto mt-1">
             Choose a patient and their specific wound site from the dropdown options to inspect longitudinal progress.
           </p>
+        </Card>
+      ) : loading ? (
+        <Card className="py-16 text-center">
+          <div className="text-slate-500">Loading assessments...</div>
         </Card>
       ) : woundAssessments.length < 2 ? (
         /* INSUFFICIENT ASSESSMENTS STATE */
@@ -235,12 +320,12 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                   {/* KPI BOXES */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-slate-50 border border-slate-100 rounded-md p-3 text-center">
-                      <div className="text-[10px] text-slate-500 font-semibold uppercase">Initial Area ({woundAssessments[0].assessmentDate})</div>
-                      <div className="text-xl font-bold text-slate-900 mt-1">{initialArea !== null ? `${initialArea} cm²` : 'N/A'}</div>
+                      <div className="text-[10px] text-slate-500 font-semibold uppercase">Initial Area ({new Date(woundAssessments[0].assessmentDate).toLocaleDateString()})</div>
+                      <div className="text-xl font-bold text-slate-900 mt-1">{getAreaFormatted(woundAssessments[0])}</div>
                     </div>
                     <div className="bg-slate-50 border border-slate-100 rounded-md p-3 text-center">
-                      <div className="text-[10px] text-slate-500 font-semibold uppercase">Current Area ({woundAssessments[woundAssessments.length - 1].assessmentDate})</div>
-                      <div className="text-xl font-bold text-slate-900 mt-1">{currentArea !== null ? `${currentArea} cm²` : 'N/A'}</div>
+                      <div className="text-[10px] text-slate-500 font-semibold uppercase">Current Area ({new Date(woundAssessments[woundAssessments.length - 1].assessmentDate).toLocaleDateString()})</div>
+                      <div className="text-xl font-bold text-slate-900 mt-1">{getAreaFormatted(woundAssessments[woundAssessments.length - 1])}</div>
                     </div>
                   </div>
 
@@ -259,7 +344,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                       <div>
                         <div className="text-2xs font-semibold text-slate-500 uppercase">Longitudinal Area Delta</div>
                         <div className="text-sm font-bold text-slate-900 mt-0.5">
-                          {areaChangePct !== null ? (areaChangePct <= 0 ? '' : '+') + areaChangePct + '%' : 'N/A'}
+                          {areaChangePct !== null ? (areaChangePct <= 0 ? '' : '+') + areaChangePct + '%' : 'Not available'}
                         </div>
                       </div>
                     </div>
@@ -277,7 +362,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                   <div className="bg-teal-50/40 border border-teal-100 rounded-lg p-3.5 text-xs text-slate-655 flex gap-2">
                     <Info className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
                     <div>
-                      Across a span of <strong>{woundAssessments.length} assessments</strong> dating from {woundAssessments[0].assessmentDate} to {woundAssessments[woundAssessments.length - 1].assessmentDate}, this {activeWound.description || 'wound'} site has shown a total area reduction of {initialArea !== null && currentArea !== null ? Math.abs(initialArea - currentArea).toFixed(2) : 'N/A'} cm² ({areaChangePct !== null ? Math.abs(areaChangePct) : 'N/A'}%). The wound margins are currently classified as <strong>{overallTrend.toLowerCase()}</strong>.
+                      Across a span of <strong>{woundAssessments.length} assessments</strong> dating from {new Date(woundAssessments[0].assessmentDate).toLocaleDateString()} to {new Date(woundAssessments[woundAssessments.length - 1].assessmentDate).toLocaleDateString()}, this {activeWound.description || 'wound'} site has shown a total area reduction of {initialAreaRaw !== null && currentAreaRaw !== null ? Math.abs(initialAreaRaw - currentAreaRaw).toFixed(2) : 'Not available'} cm² ({areaChangePct !== null ? Math.abs(areaChangePct) : 'Not available'}%). The wound margins are currently classified as <strong>{overallTrend.toLowerCase()}</strong>.
                     </div>
                   </div>
                 </div>
@@ -302,8 +387,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
           <Card title="Chronological Wound Timeline">
             <div className="flex gap-4 overflow-x-auto pb-4 pt-1 snap-x">
               {woundAssessments.map((item) => {
-                const area = getArea(item);
-                const isVerified = item.status === 'Verified';
+                const isVerified = item.status === 'VERIFIED' || item.verified;
                 const status = isVerified ? item.verifiedResult?.healingStatus : (item.aiResult?.healingStatus ?? 'Unavailable');
 
                 return (
@@ -312,21 +396,28 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                     className="min-w-[170px] max-w-[170px] border border-slate-200 rounded-lg bg-white overflow-hidden shadow-2xs snap-start flex flex-col justify-between shrink-0"
                   >
                     <div className="relative h-28 bg-slate-900 flex items-center justify-center">
-                      <img src={item.imageUrl} alt={item.assessmentDate} className="h-full w-auto object-cover" />
+                      {item.imageUrl ? (
+                        <img src={item.imageUrl} alt={item.assessmentDate} className="h-full w-auto object-cover" />
+                      ) : (
+                        <div className="text-slate-500 text-xs">Image unavailable</div>
+                      )}
                       <div className="absolute top-2 left-2 bg-slate-900/60 text-white font-mono text-[9px] px-1.5 py-0.5 rounded">
-                        {item.assessmentDate}
+                        {new Date(item.assessmentDate).toLocaleDateString()}
                       </div>
                     </div>
-                    <div className="p-3 text-xs space-y-1.5">
+                    <div className="p-3 text-xs space-y-1.5 flex flex-col h-full">
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold text-slate-900">{area} cm²</span>
+                        <span className="font-semibold text-slate-900">{getAreaFormatted(item)}</span>
                         {status === 'Improving' && <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>}
                         {status === 'Stable' && <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>}
                         {status === 'Requires Attention' && <span className="w-1.5 h-1.5 bg-rose-500 rounded-full"></span>}
                       </div>
                       <div className="text-[10px] text-slate-500 font-mono flex items-center justify-between">
-                        <span>{getDims(item)}</span>
+                        <span>{getDimsFormatted(item)}</span>
                         <span>{isVerified ? 'Verified' : 'AI Analysis'}</span>
+                      </div>
+                      <div className="text-[9px] text-slate-400 mt-auto uppercase tracking-wider font-semibold">
+                        Cal: {getCalibrationLabel(item)}
                       </div>
                     </div>
                   </div>
@@ -362,7 +453,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                   onChange={e => setCustomLeftAssId(e.target.value)}
                 >
                   {woundAssessments.map(a => (
-                    <option key={a.id} value={a.id}>{a.assessmentDate} (Record: {a.id})</option>
+                    <option key={a.id} value={a.id}>{a.assessmentDate} (Assessment: {a.id})</option>
                   ))}
                 </Select>
                 <Select
@@ -371,7 +462,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                   onChange={e => setCustomRightAssId(e.target.value)}
                 >
                   {woundAssessments.map(a => (
-                    <option key={a.id} value={a.id}>{a.assessmentDate} (Record: {a.id})</option>
+                    <option key={a.id} value={a.id}>{a.assessmentDate} (Assessment: {a.id})</option>
                   ))}
                 </Select>
               </div>
@@ -383,34 +474,42 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                 {/* LEFT FRAME */}
                 <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-900">
                   <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center text-xs">
-                    <span className="font-semibold text-slate-800">Frame A: {leftAssessment.assessmentDate}</span>
-                    <Badge variant={leftAssessment.status === 'Verified' ? 'verified' : 'pending'}>
-                      {leftAssessment.status === 'Verified' ? 'Verified' : 'AI Assessment'}
+                    <span className="font-semibold text-slate-800">Frame A: {new Date(leftAssessment.assessmentDate).toLocaleDateString()}</span>
+                    <Badge variant={leftAssessment.status === 'VERIFIED' || leftAssessment.verified ? 'verified' : 'pending'}>
+                      {leftAssessment.status === 'VERIFIED' || leftAssessment.verified ? 'Verified' : 'AI Assessment'}
                     </Badge>
                   </div>
                   <div className="relative h-64 md:h-72 flex items-center justify-center p-2 bg-slate-950">
-                    <img src={leftAssessment.imageUrl} alt="Frame A Wound" className="h-full w-auto object-contain" />
+                    {leftAssessment.imageUrl ? (
+                      <img src={leftAssessment.imageUrl} alt="Frame A Wound" className="h-full w-auto object-contain" />
+                    ) : (
+                      <div className="text-slate-500">Image unavailable</div>
+                    )}
                   </div>
                   <div className="bg-white p-3.5 border-t border-slate-150 text-xs grid grid-cols-2 gap-2 text-slate-700">
-                    <div>Wound Area: <strong className="text-slate-900">{getArea(leftAssessment)} cm²</strong></div>
-                    <div>Dimensions: <strong className="text-slate-900">{getDims(leftAssessment)}</strong></div>
+                    <div>Wound Area: <strong className="text-slate-900">{getAreaFormatted(leftAssessment)}</strong></div>
+                    <div>Dimensions: <strong className="text-slate-900">{getDimsFormatted(leftAssessment)}</strong></div>
                   </div>
                 </div>
 
                 {/* RIGHT FRAME */}
                 <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-900">
                   <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center text-xs">
-                    <span className="font-semibold text-slate-800">Frame B: {rightAssessment.assessmentDate}</span>
-                    <Badge variant={rightAssessment.status === 'Verified' ? 'verified' : 'pending'}>
-                      {rightAssessment.status === 'Verified' ? 'Verified' : 'AI Assessment'}
+                    <span className="font-semibold text-slate-800">Frame B: {new Date(rightAssessment.assessmentDate).toLocaleDateString()}</span>
+                    <Badge variant={rightAssessment.status === 'VERIFIED' || rightAssessment.verified ? 'verified' : 'pending'}>
+                      {rightAssessment.status === 'VERIFIED' || rightAssessment.verified ? 'Verified' : 'AI Assessment'}
                     </Badge>
                   </div>
                   <div className="relative h-64 md:h-72 flex items-center justify-center p-2 bg-slate-950">
-                    <img src={rightAssessment.imageUrl} alt="Frame B Wound" className="h-full w-auto object-contain" />
+                    {rightAssessment.imageUrl ? (
+                      <img src={rightAssessment.imageUrl} alt="Frame B Wound" className="h-full w-auto object-contain" />
+                    ) : (
+                      <div className="text-slate-500">Image unavailable</div>
+                    )}
                   </div>
                   <div className="bg-white p-3.5 border-t border-slate-150 text-xs grid grid-cols-2 gap-2 text-slate-700">
-                    <div>Wound Area: <strong className="text-slate-900">{getArea(rightAssessment)} cm²</strong></div>
-                    <div>Dimensions: <strong className="text-slate-900">{getDims(rightAssessment)}</strong></div>
+                    <div>Wound Area: <strong className="text-slate-900">{getAreaFormatted(rightAssessment)}</strong></div>
+                    <div>Dimensions: <strong className="text-slate-900">{getDimsFormatted(rightAssessment)}</strong></div>
                   </div>
                 </div>
               </div>
