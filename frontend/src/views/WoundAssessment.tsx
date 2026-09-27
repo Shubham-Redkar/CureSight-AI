@@ -73,7 +73,6 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
 
   // Verification Form states
   const [clinicalNotes, setClinicalNotes] = useState('');
-  const [verifiedHealingStatus, setVerifiedHealingStatus] = useState<'Improving' | 'Stable' | 'Requires Attention' | 'Unavailable' | 'Insufficient historical data' | ''>('');
   
   // Calibration state
   const [showAdvancedCalibration, setShowAdvancedCalibration] = useState<boolean>(false);
@@ -87,9 +86,6 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
     areaCm2: null,
     lengthCm: null,
     widthCm: null,
-    granulationTissuePct: null,
-    sloughTissuePct: null,
-    escharTissuePct: null,
   });
 
   const activePatient = patients.find(p => p.id === Number(selectedPatientId));
@@ -105,11 +101,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
         areaCm2: null,
         lengthCm: null,
         widthCm: null,
-        granulationTissuePct: null,
-        sloughTissuePct: null,
-        escharTissuePct: null,
       });
-      setVerifiedHealingStatus('');
       setClinicalNotes('');
       setAnalysisStep(-1);
       setAnalysisProgress('');
@@ -122,12 +114,10 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
       setCurrentStep('analysis');
       if (activeAssessment.status === 'Verified' && activeAssessment.verifiedResult) {
         setVerifiedMeasurements(activeAssessment.verifiedResult.measurements);
-        setVerifiedHealingStatus(activeAssessment.verifiedResult.healingStatus);
         setClinicalNotes(activeAssessment.verifiedResult.clinicalNotes);
       } else if (activeAssessment.aiResult) {
         // Initialize verified form with AI findings
         setVerifiedMeasurements(activeAssessment.aiResult.measurements);
-        setVerifiedHealingStatus(activeAssessment.aiResult.healingStatus || 'Unavailable');
         setClinicalNotes('');
       }
     } else {
@@ -226,7 +216,6 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
       verifyAssessment(selectedAssessmentId, {
         verifiedDate: new Date().toISOString().split('T')[0],
         measurements: verifiedMeasurements,
-        healingStatus: verifiedHealingStatus as any,
         clinicalNotes: clinicalNotes.trim(),
       });
     }
@@ -239,7 +228,6 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
       verifyAssessment(selectedAssessmentId!, {
         verifiedDate: new Date().toISOString().split('T')[0],
         measurements: ai.measurements,
-        healingStatus: ai.healingStatus === 'Unavailable' || ai.healingStatus === 'Insufficient historical data' ? 'Unavailable' : ai.healingStatus,
         clinicalNotes: 'AI assessment accepted in full after clinical review.',
       });
     }
@@ -654,22 +642,6 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                       className="max-w-full h-auto max-h-[450px] object-contain"
                     />
                   </div>
-                  
-                  {/* TISSUE MAP LEGEND */}
-                  <div className="flex gap-4 mt-3 bg-slate-50 p-2.5 rounded-md border border-slate-200 text-2xs justify-center font-medium">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-3 h-3 rounded-sm bg-red-500/40 border border-red-500"></span>
-                      Granulation ({activeAssessment.aiResult?.measurements.granulationTissuePct ?? 'Not available'})
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-3 h-3 rounded-sm bg-yellow-500/40 border border-yellow-500"></span>
-                      Slough ({activeAssessment.aiResult?.measurements.sloughTissuePct ?? 'Not available'})
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-3 h-3 rounded-sm bg-slate-500/40 border border-slate-500"></span>
-                      Eschar/Necrotic ({activeAssessment.aiResult?.measurements.escharTissuePct ?? 'Not available'})
-                    </span>
-                  </div>
                 </Card>
               </div>
 
@@ -794,12 +766,7 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                           )}
                         </div>
                       )}
-
-                      <div className="flex justify-between items-center text-xs py-1 border-b border-slate-100">
-                        <span className="text-slate-500">Clinical healing assessment:</span>
-                        <span className="font-semibold">{activeAssessment.aiResult.healingStatus}</span>
                       </div>
-                    </div>
                   ) : (
                     <div className="text-center py-6 text-slate-400 text-xs">AI pipeline analysis is pending.</div>
                   )}
@@ -828,12 +795,6 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                       </div>
 
                       <div className="space-y-2">
-                        <div className="flex justify-between py-1 border-b border-slate-100">
-                          <span className="text-slate-500">Verified healing assessment:</span>
-                          <span className="font-semibold text-slate-800">
-                            {activeAssessment.verifiedResult?.healingStatus}
-                          </span>
-                        </div>
                         <div className="flex justify-between py-1 border-b border-slate-100">
                           <span className="text-slate-500">Verified wound area (cm²):</span>
                           <span className="font-semibold text-slate-800">
@@ -884,16 +845,6 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                             })}
                             required
                           />
-                          <Select
-                            label="Healing Status Trend"
-                            value={verifiedHealingStatus}
-                            onChange={e => setVerifiedHealingStatus(e.target.value as any)}
-                          >
-                            <option value="" disabled>Select status...</option>
-                            <option value="Improving">Improving</option>
-                            <option value="Stable">Stable</option>
-                            <option value="Requires Attention">Requires Attention</option>
-                          </Select>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 text-xs">
@@ -918,42 +869,6 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                               widthCm: e.target.value === '' ? null : parseFloat(e.target.value)
                             })}
                             required
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-2 text-2xs">
-                          <Input
-                            label="Granulation %"
-                            type="number"
-                            max="100"
-                            min="0"
-                            value={verifiedMeasurements.granulationTissuePct ?? ''}
-                            onChange={e => setVerifiedMeasurements({
-                              ...verifiedMeasurements,
-                              granulationTissuePct: e.target.value === '' ? null : parseInt(e.target.value)
-                            })}
-                          />
-                          <Input
-                            label="Slough %"
-                            type="number"
-                            max="100"
-                            min="0"
-                            value={verifiedMeasurements.sloughTissuePct ?? ''}
-                            onChange={e => setVerifiedMeasurements({
-                              ...verifiedMeasurements,
-                              sloughTissuePct: e.target.value === '' ? null : parseInt(e.target.value)
-                            })}
-                          />
-                          <Input
-                            label="Eschar %"
-                            type="number"
-                            max="100"
-                            min="0"
-                            value={verifiedMeasurements.escharTissuePct ?? ''}
-                            onChange={e => setVerifiedMeasurements({
-                              ...verifiedMeasurements,
-                              escharTissuePct: e.target.value === '' ? null : parseInt(e.target.value)
-                            })}
                           />
                         </div>
                       </div>

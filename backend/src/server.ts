@@ -4,6 +4,7 @@ import "dotenv/config";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 import * as argon2 from "argon2";
+import crypto from "crypto";
 
 import { PrismaClient, UserRole } from "../generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -73,10 +74,10 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
   }
 };
 
-export const requireRole = (role: UserRole) => {
+export const requireRoles = (roles: UserRole[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
     const user = (req as any).user;
-    if (!user || user.role !== role) {
+    if (!user || !roles.includes(user.role)) {
       return res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions" });
     }
     next();
@@ -159,6 +160,8 @@ app.use("/api/wounds", requireAuth);
 app.use("/api/assessments", requireAuth);
 app.use("/api/upload", requireAuth);
 app.use("/api/reports", requireAuth);
+app.use("/api/dashboard", requireAuth);
+app.use("/api/images", requireAuth);
 
 // Patients
 app.get("/api/patients", async (req, res) => {
@@ -379,7 +382,7 @@ app.get("/api/assessments", async (req, res) => {
   }
 });
 
-app.patch("/api/assessments/:id/verify", async (req, res) => {
+app.patch("/api/assessments/:id/verify", requireRoles(["DOCTOR", "ADMIN"]), async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (isNaN(id)) {
@@ -489,10 +492,20 @@ app.get("/api/reports/:assessmentId", async (req, res) => {
       orderBy: { assessmentDate: "asc" },
     });
 
+    let effectiveWoundDetected = assessment.woundDetected;
+    if (assessment.verified === true && assessment.verifiedResult != null) {
+      const verifiedResult = assessment.verifiedResult as any;
+      if (typeof verifiedResult.woundDetected === "boolean") {
+        effectiveWoundDetected = verifiedResult.woundDetected;
+      }
+    }
+
     // Extract the current assessment's area from its persisted measurements
     const currentMeasurements = assessment.measurements as any;
-    const currentArea: number | null =
-      currentMeasurements?.total_area_cm2 ?? null;
+    let currentArea: number | null = null;
+    if (effectiveWoundDetected === true) {
+      currentArea = currentMeasurements?.total_area_cm2 ?? null;
+    }
 
     // Determine previous valid assessment (chronologically preceding with a valid area)
     let previousAssessment: {
@@ -510,9 +523,17 @@ app.get("/api/reports/:assessmentId", async (req, res) => {
         const prev = allWoundAssessments[i];
         const prevMeas = prev.measurements as any;
         const prevArea = prevMeas?.total_area_cm2;
+        let effectiveWoundDetected = prev.woundDetected;
+        if (prev.verified === true && prev.verifiedResult != null) {
+          const vResult = prev.verifiedResult as any;
+          if (typeof vResult.woundDetected === "boolean") {
+            effectiveWoundDetected = vResult.woundDetected;
+          }
+        }
+
         if (
-          prev.status === "COMPLETED" &&
-          prev.woundDetected === true &&
+          ["COMPLETED", "VERIFIED"].includes(prev.status) &&
+          effectiveWoundDetected === true &&
           prevArea != null &&
           typeof prevArea === "number"
         ) {
@@ -603,27 +624,44 @@ app.get("/api/reports/:assessmentId", async (req, res) => {
 
 app.get("/api/reports", async (req, res) => {
   try {
-    const assessments = await prisma.assessment.findMany({
-      where: {
-        status: {
-          in: ["COMPLETED", "VERIFIED"]
-        }
-      },
-      include: {
-        wound: {
-          include: {
-            patient: true
-          }
-        }
-      },
-      orderBy: {
-        assessmentDate: 'desc'
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const skip = (page - 1) * limit;
+
+    const where = {
+      status: {
+        in: ["COMPLETED", "VERIFIED"]
       }
-    });
+    };
+
+    const [total, assessments] = await Promise.all([
+      prisma.assessment.count({ where }),
+      prisma.assessment.findMany({
+        where,
+        include: {
+          wound: {
+            include: {
+              patient: true
+            }
+          }
+        },
+        orderBy: {
+          assessmentDate: 'desc'
+        },
+        skip,
+        take: limit,
+      })
+    ]);
 
     res.json({
       status: "ok",
-      reports: assessments
+      reports: assessments,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
     });
   } catch (error) {
     console.error("GET /reports Error:", error);
@@ -707,6 +745,14 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
       });
     }
 
+    const sha256Hash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    console.log(`\n[UPLOAD FORENSICS]
+- source: ${req.headers['user-agent'] || 'unknown'}
+- original filename: ${req.file.originalname}
+- MIME type: ${req.file.mimetype}
+- byte length: ${req.file.buffer.length}
+- SHA-256 hash of req.file.buffer: ${sha256Hash}\n`);
+
     const woundId = Number(req.body.woundId);
     const woundExists = await prisma.wound.findUnique({ where: { id: woundId } });
     
@@ -764,31 +810,32 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
         if (!aiResponse.ok) {
             const errorText = await aiResponse.text();
             
-            // Handle expected non-wound AI result gracefully (HTTP 422)
-            if (aiResponse.status === 422) {
+            // Forward structured FastAPI errors directly (422 validation, 503 service unavailable)
+            if (aiResponse.status === 422 || aiResponse.status === 503) {
                 try {
                     const errJson = JSON.parse(errorText);
-                    if (errJson.error?.code === "NON_WOUND_IMAGE") {
-                        aiAnalysis = {
-                            wound_detected: false,
-                            message: errJson.error.message,
-                            wounds: []
-                        };
-                    } else {
-                        console.error(`[UPLOAD] FastAPI request failed: status=${aiResponse.status} body=${errorText}`);
-                        throw new Error(`FastAPI error: ${aiResponse.status} ${errorText}`);
+                    if (errJson.error && errJson.error.code) {
+                        return res.status(aiResponse.status).json({
+                            status: "error",
+                            error: errJson.error.code,
+                            message: errJson.error.message || "AI Analysis failed",
+                            details: errJson.error.details || [],
+                            requestId: errJson.error.request_id
+                        });
                     }
                 } catch (e) {
-                    console.error(`[UPLOAD] FastAPI request failed: status=${aiResponse.status} body=${errorText}`);
-                    throw new Error(`FastAPI error: ${aiResponse.status} ${errorText}`);
+                    // Fall back to generic error if not JSON
                 }
             } else if (aiResponse.status === 413) {
-                console.error(`[UPLOAD] FastAPI request failed: status=${aiResponse.status} body=${errorText}`);
-                throw new Error(`Image is too large. Please use an image with dimensions up to 4096 × 4096 pixels.`);
-            } else {
-                console.error(`[UPLOAD] FastAPI request failed: status=${aiResponse.status} body=${errorText}`);
-                throw new Error(`FastAPI error: ${aiResponse.status} ${errorText}`);
+                return res.status(413).json({
+                    status: "error",
+                    error: "IMAGE_TOO_LARGE",
+                    message: "Image is too large. Please use an image with dimensions up to 4096 × 4096 pixels."
+                });
             }
+            
+            console.error(`[UPLOAD] FastAPI request failed: status=${aiResponse.status} body=${errorText}`);
+            throw new Error(`FastAPI error: ${aiResponse.status} ${errorText}`);
         } else {
             aiAnalysis = await aiResponse.json();
         }

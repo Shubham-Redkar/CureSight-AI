@@ -50,7 +50,7 @@ def process_wound_image(
         message = result.get("message", "An error occurred during processing.")
         
         # Decide status code based on error code
-        if error_code in ["IMAGE_QUALITY_FAILED", "NON_WOUND_IMAGE", "NO_WOUND_DETECTED"]:
+        if error_code in ["IMAGE_QUALITY_FAILED", "NON_WOUND_IMAGE"]:
             status_code = 422
         elif error_code in ["INVALID_IMAGE"]:
             status_code = 400
@@ -59,6 +59,19 @@ def process_wound_image(
         else:
             status_code = 500
             
+        if status_code == 422:
+            detections = result.get("detections", [])
+            logger.error(
+                f"\n[AI 422 DIAGNOSTIC]\n"
+                f"request_id={request_id}\n"
+                f"error_code={error_code}\n"
+                f"error_message={message}\n"
+                f"error_details={result.get('reasons', [])}\n"
+                f"yolo_detected={result.get('detected', False)}\n"
+                f"number_of_detections={len(detections)}\n"
+                f"yolo_confidence={[d.get('confidence') for d in detections] if detections else 'None'}\n"
+            )
+
         raise_structured_error(
             status_code=status_code,
             code=error_code,
@@ -137,7 +150,7 @@ def process_wound_image(
         overall_color_hex=None,
         overall_color_classification=None,
         inference_time_ms=timing,
-        message="Wound analysis completed successfully.",
+        message=result.get("message", "Wound analysis completed successfully."),
         annotated_image_base64=annotated_image_base64,
         calibration=result.get("calibration"),
         physical_measurement_available=result.get("calibration", {}).get("pixels_per_cm") is not None

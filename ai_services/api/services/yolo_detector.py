@@ -42,22 +42,47 @@ class YoloDetector:
                 ]
             }
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         if not self.is_loaded:
             return {"available": False, "detected": False, "detections": []}
             
-        results = self.model.predict(source=image_path, conf=conf_thresh, verbose=False)
+        results = self.model.predict(source=image_path, conf=0.01, verbose=False) # run with very low conf for diagnostics
         result = results[0]
         
         boxes = result.boxes
-        if len(boxes) == 0:
+        
+        # Diagnostics
+        raw_boxes_count = len(boxes)
+        raw_confs = []
+        raw_classes = []
+        if raw_boxes_count > 0:
+            raw_confs = boxes.conf.cpu().numpy().tolist()
+            raw_classes = boxes.cls.cpu().numpy().tolist()
+            
+        max_conf = max(raw_confs) if raw_confs else 0.0
+        
+        logger.info(
+            f"\n[YOLO RAW FORENSICS]\n"
+            f"image={image_path}\n"
+            f"raw_boxes_count={raw_boxes_count}\n"
+            f"max_confidence={max_conf}\n"
+            f"raw_confidences={raw_confs}\n"
+            f"raw_classes={raw_classes}\n"
+            f"applied_conf_thresh={conf_thresh}\n"
+        )
+        
+        # Apply actual threshold manually since we ran with 0.01 for forensics
+        if raw_boxes_count == 0:
             return {"available": True, "detected": False, "detections": []}
             
         detections = []
         for box in boxes:
             class_id = int(box.cls[0])
-            if class_id == 0:
+            conf = float(box.conf[0])
+            if class_id == 0 and conf >= conf_thresh:
                 coords = box.xyxy[0].cpu().numpy().tolist()
-                conf = float(box.conf[0])
                 detections.append({
                     "confidence": conf,
                     "bbox": coords

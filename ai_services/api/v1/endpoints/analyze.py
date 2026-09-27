@@ -10,6 +10,7 @@ from typing import Any
 import cv2
 import httpx
 import numpy as np
+import hashlib
 from fastapi import (
     APIRouter,
     Depends,
@@ -177,10 +178,20 @@ async def analyze_wound_upload(
     # 1. Read bytes
     content = await file.read()
     
-    return await process_bytes(content, pixels_per_cm, models, cfg, request_id)
+    sha256_hash = hashlib.sha256(content).hexdigest()
+    logger.info(
+        f"\n[FASTAPI IMAGE FORENSICS]\n"
+        f"request_id={request_id}\n"
+        f"filename={file.filename}\n"
+        f"content_type={file.content_type}\n"
+        f"file_size={len(content)}\n"
+        f"sha256={sha256_hash}\n"
+    )
+    
+    return await process_bytes(content, pixels_per_cm, models, cfg, request_id, file.filename, file.content_type)
 
 
-async def process_bytes(image_bytes: bytes, pixels_per_cm: float | None, models: dict[str, Any], cfg: Any, request_id: str):
+async def process_bytes(image_bytes: bytes, pixels_per_cm: float | None, models: dict[str, Any], cfg: Any, request_id: str, filename: str = "unknown", content_type: str = "unknown"):
     # 2. Extract limits
     limits = getattr(cfg, "api_limits", None)
     max_upload_size_bytes = 10 * 1024 * 1024
@@ -212,6 +223,17 @@ async def process_bytes(image_bytes: bytes, pixels_per_cm: float | None, models:
             request_id=request_id
         )
         
+    height, width = image_bgr.shape[:2]
+    channels = image_bgr.shape[2] if len(image_bgr.shape) > 2 else 1
+    
+    logger.info(
+        f"\n[FASTAPI DECODED IMAGE FORENSICS]\n"
+        f"request_id={request_id}\n"
+        f"decoded_width={width}\n"
+        f"decoded_height={height}\n"
+        f"channels={channels}\n"
+    )
+
     # 5. Validate dimensions
     # We will downscale oversized images later in the pipeline after quality checks,
     # but we retain a generous hard limit to prevent OOM/decompression bombs.
@@ -233,9 +255,43 @@ async def process_bytes(image_bytes: bytes, pixels_per_cm: float | None, models:
         tmp_path = tmp_file.name
 
     # 7. Process
+    import shutil
+    debug_path = f"/home/shubham/projects/CureSight-AI/debug_{'flutter' if 'dart' in (content_type.lower() if content_type else '') or 'png' in filename.lower() or 'scaled' in filename.lower() else 'web'}_{request_id}.jpg"
+    
+    # Try to distinguish based on filename for the debug prefix
+    if 'image_picker' in filename.lower() or 'scaled' in filename.lower() or 'normalized' in filename.lower():
+        prefix = 'flutter'
+    else:
+        prefix = 'web'
+    debug_path = f"/home/shubham/projects/CureSight-AI/debug_{prefix}_{request_id}.jpg"
+    shutil.copy2(tmp_path, debug_path)
+    logger.info(f"[{request_id}] Saved diagnostic copy to {debug_path}")
+    
     try:
         logger.info(f"[{request_id}] Starting ML inference...")
-        return process_wound_image(tmp_path, pixels_per_cm, models, cfg, request_id)
+        response = process_wound_image(tmp_path, pixels_per_cm, models, cfg, request_id)
+        logger.info(
+            f"\n[AI SUCCESS]\n"
+            f"request_id={request_id}\n"
+            f"wound_detected={response.wound_detected}\n"
+            f"detection_confidence={response.detection_confidence}\n"
+            f"image_width={width}\n"
+            f"image_height={height}\n"
+        )
+        return response
+    except Exception as e:
+        from api.core.exceptions import StructuredError
+        if isinstance(e, StructuredError) and e.status_code == 422:
+            logger.error(
+                f"\n[AI 422 FILE DIAGNOSTIC APPEND]\n"
+                f"request_id={request_id}\n"
+                f"filename={filename}\n"
+                f"content_type={content_type}\n"
+                f"image_width={width}\n"
+                f"image_height={height}\n"
+                f"file_size={len(image_bytes)}\n"
+            )
+        raise e
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
