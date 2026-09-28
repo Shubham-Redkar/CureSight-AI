@@ -194,10 +194,19 @@ class MLPipeline:
         if not self.yolo.is_loaded:
             return {"status": "error", "error_code": "MODELS_NOT_LOADED", "message": "YOLO model not loaded."}
             
+        import shutil
+        debug_id = os.path.basename(image_path).replace('.jpg', '')
+        debug_path = f"/home/shubham/projects/CureSight-AI/debug_pre_yolo_{debug_id}.jpg"
+        shutil.copy2(image_path, debug_path)
+        
         conf_thresh = self.config.get("ml_pipeline", {}).get("yolo_confidence_threshold", 0.25)
         yolo_result = self.yolo.detect(image_path, conf_thresh=conf_thresh)
         if not yolo_result["detected"] or not yolo_result.get("detections"):
-            return {"status": "error", "error_code": "NO_WOUND_DETECTED", "message": "YOLO did not detect any wounds."}
+            response["wound_detected"] = False
+            response["segmentation_valid"] = False
+            response["message"] = "No wound detected."
+            response["roi_measurements"] = []
+            return response
             
         response["detections"] = yolo_result["detections"]
         

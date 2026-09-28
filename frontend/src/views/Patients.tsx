@@ -129,7 +129,7 @@ export const Patients: React.FC<PatientsProps> = ({
   const filteredPatients = patients.filter(p => {
     const matchesSearch = p.patientCode.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           p.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter ? p.overallHealingStatus === statusFilter : true;
+    const matchesStatus = true;
     return matchesSearch && matchesStatus;
   });
 
@@ -252,7 +252,7 @@ export const Patients: React.FC<PatientsProps> = ({
                         <td className="py-3 px-5">{p.age || 'Unknown'}</td>
                         <td className="py-3 px-5 font-medium">{p.woundsCount}</td>
                         <td className="py-3 px-5">{p.latestAssessmentDate || 'None'}</td>
-                        <td className="py-3 px-5">{getHealingBadge(p.overallHealingStatus ?? 'Unassessed')}</td>
+                        <td className="py-3 px-5 text-slate-500">None</td>
                         <td className="py-3 px-5 text-right">
                           <Button
                             variant="secondary"
@@ -287,7 +287,7 @@ export const Patients: React.FC<PatientsProps> = ({
             <div>
               <div className="flex items-center gap-3">
                 <h2 className="text-xl font-bold text-slate-900 tracking-tight font-mono">Patient: {selectedPatient.patientCode}</h2>
-                {getHealingBadge(selectedPatient.overallHealingStatus ?? 'Unassessed')}
+                <span className="text-slate-500 text-xs">No status available</span>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
                 Name: {selectedPatient.name} • Age: {selectedPatient.age || 'Unknown'}
@@ -332,7 +332,7 @@ export const Patients: React.FC<PatientsProps> = ({
                           <div>
                             <div className="flex items-center justify-between">
                               <span className="font-mono text-xs font-semibold text-slate-500">{wound.id}</span>
-                              {getHealingBadge(wound.status ?? 'Unavailable')}
+                              <span className="text-slate-500 text-xs">No status available</span>
                             </div>
                             <h4 className="font-semibold text-slate-800 text-sm mt-1.5">{wound.location}</h4>
                             <div className="text-2xs text-slate-500 mt-0.5">{wound.description || 'Unspecified'}</div>
@@ -406,8 +406,8 @@ export const Patients: React.FC<PatientsProps> = ({
                             : 'Pending';
 
                           const hStatus = ass.verifiedResult
-                            ? ass.verifiedResult.healingStatus
-                            : ass.aiResult?.healingStatus ?? 'Unassessed';
+                            ? 'Unassessed'
+                            : 'Unassessed';
 
                           return (
                             <tr key={ass.id} className="hover:bg-slate-50/20">

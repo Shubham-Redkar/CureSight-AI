@@ -71,7 +71,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                        woundsList: assessment.measurements?.wounds ?? [],
                    },
                    tissueAnalysis: assessment.notes || 'Analysis complete',
-                   healingStatus: 'Unavailable',
+
                    calibration: assessment.measurements?.calibration || null
                };
             }
@@ -388,8 +388,6 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
             <div className="flex gap-4 overflow-x-auto pb-4 pt-1 snap-x">
               {woundAssessments.map((item) => {
                 const isVerified = item.status === 'VERIFIED' || item.verified;
-                const status = isVerified ? item.verifiedResult?.healingStatus : (item.aiResult?.healingStatus ?? 'Unavailable');
-
                 return (
                   <div
                     key={item.id}
@@ -408,9 +406,6 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
                     <div className="p-3 text-xs space-y-1.5 flex flex-col h-full">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-slate-900">{getAreaFormatted(item)}</span>
-                        {status === 'Improving' && <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>}
-                        {status === 'Stable' && <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>}
-                        {status === 'Requires Attention' && <span className="w-1.5 h-1.5 bg-rose-500 rounded-full"></span>}
                       </div>
                       <div className="text-[10px] text-slate-500 font-mono flex items-center justify-between">
                         <span>{getDimsFormatted(item)}</span>

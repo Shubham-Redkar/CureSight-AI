@@ -164,13 +164,9 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                      areaCm2: assessment.measurements?.total_area_cm2 ?? null,
                      lengthCm: assessment.measurements?.wounds?.[0]?.length_cm ?? null,
                      widthCm: assessment.measurements?.wounds?.[0]?.width_cm ?? null,
-                     granulationTissuePct: null,
-                     sloughTissuePct: null,
-                     escharTissuePct: null,
                      woundsList: assessment.measurements?.wounds ?? [],
                  },
                  tissueAnalysis: assessment.notes || 'Analysis complete',
-                 healingStatus: 'Unavailable',
                  calibration: assessment.measurements?.calibration || null
              };
           }
@@ -239,13 +235,9 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     areaCm2: data.assessment.measurements?.total_area_cm2 ?? null,
                     lengthCm: data.assessment.measurements?.wounds?.[0]?.length_cm ?? null,
                     widthCm: data.assessment.measurements?.wounds?.[0]?.width_cm ?? null,
-                    granulationTissuePct: null,
-                    sloughTissuePct: null,
-                    escharTissuePct: null,
                     woundsList: data.assessment.measurements?.wounds ?? [],
                 },
                 tissueAnalysis: ai.message || data.assessment.notes || 'Analysis complete',
-                healingStatus: 'Unavailable',
                 calibration: data.assessment.measurements?.calibration || null
             },
             analyzedImageUrl: ai.annotated_image_url ? `${API_URL}${ai.annotated_image_url}` : undefined,

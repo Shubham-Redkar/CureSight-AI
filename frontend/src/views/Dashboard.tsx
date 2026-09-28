@@ -45,19 +45,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const completedAssessments = stats?.verifiedAssessments || 0;
   const recentAssessments = stats?.recentAssessments || [];
 
-  const getHealingBadge = (status: string) => {
-    switch (status) {
-      case 'Improving':
-        return <Badge variant="improving">Improving</Badge>;
-      case 'Stable':
-        return <Badge variant="stable">Stable</Badge>;
-      case 'Requires Attention':
-        return <Badge variant="attention">Requires Attention</Badge>;
-      default:
-        return <Badge variant="neutral">Unassessed</Badge>;
-    }
-  };
-
   const getReviewBadge = (status: string) => {
     switch (status) {
       case 'Verified':
@@ -195,18 +182,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {recentAssessments.map((item: any) => {
                   
-                  // Healing status calculation
-                  const healingStatus = (item.status === 'VERIFIED' || item.verified
-                    ? item.verifiedResult?.healingStatus
-                    : item.measurements?.healingStatus) ?? 'Unassessed';
-
                   return (
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="py-3 px-5 font-mono font-medium text-slate-900">{item.wound?.patient?.patientCode || '-'}</td>
                       <td className="py-3 px-5 font-mono text-slate-600">{item.woundId}</td>
                       <td className="py-3 px-5">{new Date(item.assessmentDate).toLocaleDateString()}</td>
                       <td className="py-3 px-5 font-medium text-slate-800">{item.wound?.location || 'Unspecified'}</td>
-                      <td className="py-3 px-5">{getHealingBadge(healingStatus)}</td>
+                      <td className="py-3 px-5">{item.status === 'VERIFIED' || item.status === 'Verified' ? 'Verified' : 'Completed'}</td>
                       <td className="py-3 px-5">{getReviewBadge(item.status === 'VERIFIED' ? 'Verified' : 'Pending Review')}</td>
                       <td className="py-3 px-5 text-right">
                         <Button

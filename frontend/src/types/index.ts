@@ -9,7 +9,6 @@ export interface Patient {
   // UI-calculated fields
   woundsCount?: number;
   latestAssessmentDate?: string;
-  overallHealingStatus?: 'Improving' | 'Stable' | 'Requires Attention' | 'Unassessed' | 'Unavailable';
 }
 
 export interface Wound {
@@ -21,7 +20,6 @@ export interface Wound {
   updatedAt?: string;
   
   // UI-calculated fields
-  status?: 'Improving' | 'Stable' | 'Requires Attention' | 'Unavailable';
 }
 
 export interface Measurement {
@@ -29,9 +27,6 @@ export interface Measurement {
   areaCm2: number | null;
   lengthCm: number | null;
   widthCm: number | null;
-  granulationTissuePct: number | null;
-  sloughTissuePct: number | null;
-  escharTissuePct: number | null;
   woundsList?: any[];
 }
 
@@ -57,14 +52,12 @@ export interface Assessment {
     detectionConfidence: number | null;
     measurements: Measurement;
     tissueAnalysis: string; // Textual description
-    healingStatus: 'Improving' | 'Stable' | 'Requires Attention' | 'Unavailable' | 'Insufficient historical data';
     calibration?: any;
   };
 
   verifiedResult?: {
     verifiedDate: string;
     measurements: Measurement;
-    healingStatus: 'Improving' | 'Stable' | 'Requires Attention' | 'Unavailable';
     clinicalNotes: string;
   };
 }
