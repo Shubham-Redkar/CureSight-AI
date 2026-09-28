@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# Development / Caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+tests/
+.git/
+
+# Logs and temporary files
+*.log
+*.tmp
+debug_*.jpg
+
+# Exclude unused / optional model artifacts to save space
+api/models/wound_gate/best_v1_backup.pt
+api/models/classifier/*/training_history.json
+api/models/classifier/*/config.json
+
+# DO NOT EXCLUDE:
+# !config.yaml
+# !api/
+# !api/models/

@@ -43,6 +43,10 @@ def load_config(path: str = "config.yaml") -> SimpleNamespace:
         FileNotFoundError: If the config file does not exist.
     """
     config_path = Path(path)
+    if not config_path.is_absolute():
+        base_dir = Path(__file__).resolve().parent.parent.parent
+        config_path = base_dir / config_path
+
     if not config_path.exists():
         raise FileNotFoundError(
             f"Config file not found: {config_path.resolve()}\n"

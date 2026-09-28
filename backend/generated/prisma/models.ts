@@ -8,8 +8,8 @@
  *
  * 🟢 You can import this file directly.
  */
-export type * from './models/Patient.ts'
-export type * from './models/Wound.ts'
-export type * from './models/Assessment.ts'
-export type * from './models/User.ts'
-export type * from './commonInputTypes.ts'
+export type * from './models/Patient'
+export type * from './models/Wound'
+export type * from './models/Assessment'
+export type * from './models/User'
+export type * from './commonInputTypes'

@@ -1,5 +1,6 @@
 import os
-
+import sys
+import tempfile
 import cv2
 import yaml
 
@@ -12,6 +13,7 @@ from api.services.unet_segmenter import UNetSegmenter
 from api.services.wound_gate import WoundGate
 from api.services.yolo_detector import YoloDetector
 from api.services.calibration import CalibrationDetector
+from api.services.classifier_service import WoundClassifier
 
 class MLPipeline:
     """
@@ -24,22 +26,31 @@ class MLPipeline:
     6. Measurements (compute properties)
     """
     def __init__(self, config_path: str = "config.yaml"):
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if not os.path.isabs(config_path):
+            config_path = os.path.join(base_dir, config_path)
+            
         # Load config to get model paths and settings
         self.config = {}
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
                 self.config = yaml.safe_load(f)
                 
+        def resolve_model_path(path):
+            if path and not os.path.isabs(path):
+                return os.path.join(base_dir, path)
+            return path
+                
         # Initialize components
         ml_cfg = self.config.get("ml_pipeline", {})
         
         self.wound_gate = WoundGate(
-            model_path=ml_cfg.get("wound_gate_model", "ml/models/wound_gate/best.pt"),
+            model_path=resolve_model_path(ml_cfg.get("wound_gate_model", "ml/models/wound_gate/best.pt")),
             required=ml_cfg.get("require_wound_gate", False)
         )
         
         self.yolo = YoloDetector(
-            model_path=ml_cfg.get("yolo_model", "ml/models/yolo/best.pt"),
+            model_path=resolve_model_path(ml_cfg.get("yolo_model", "ml/models/yolo/best.pt")),
             required=ml_cfg.get("require_yolo", True)
         )
         
@@ -48,7 +59,7 @@ class MLPipeline:
         )
         
         self.unet = UNetSegmenter(
-            model_path=ml_cfg.get("unet_model", "ml/models/unet/best.pth"),
+            model_path=resolve_model_path(ml_cfg.get("unet_model", "ml/models/unet/best.pth")),
             required=ml_cfg.get("require_unet", True)
         )
         
@@ -59,10 +70,16 @@ class MLPipeline:
         
         self.calibration_detector = CalibrationDetector(self.config)
         
+        self.classifier = WoundClassifier(
+            effnet_path=resolve_model_path(ml_cfg.get("effnet_model", "api/models/classifier/effnet/best.pt")),
+            resnet_path=resolve_model_path(ml_cfg.get("resnet_model", "api/models/classifier/resnet/best.pt"))
+        )
+        
         # Load available models
         self.wound_gate.load()
         self.yolo.load()
         self.unet.load()
+        self.classifier.load()
 
     def process_image(self, image_path: str, pixels_per_cm: float | None = None) -> dict:
         """
@@ -77,7 +94,8 @@ class MLPipeline:
             "measurements": None,
             "segmentation_valid": False,
             "mask_path": None, # If we were to save it
-            "calibration": None
+            "calibration": None,
+            "wound_classification": None
         }
         
         if not os.path.exists(image_path):
@@ -190,13 +208,23 @@ class MLPipeline:
             if not gate_result["is_wound"]:
                 return {"status": "error", "error_code": "NON_WOUND_IMAGE", "message": "Rejected by Wound Gate: No wound classified in image."}
                 
+        # 1.5 Wound Classification (Phase 14)
+        if self.classifier.is_loaded:
+            class_result = self.classifier.predict(image_path)
+            if class_result["available"]:
+                response["wound_classification"] = {
+                    "predicted_class": class_result["predicted_class"],
+                    "confidence": class_result["confidence"],
+                    "class_probabilities": class_result["class_probabilities"]
+                }
+                
         # 2. YOLO Detection
         if not self.yolo.is_loaded:
             return {"status": "error", "error_code": "MODELS_NOT_LOADED", "message": "YOLO model not loaded."}
             
         import shutil
         debug_id = os.path.basename(image_path).replace('.jpg', '')
-        debug_path = f"/home/shubham/projects/CureSight-AI/debug_pre_yolo_{debug_id}.jpg"
+        debug_path = os.path.join(tempfile.gettempdir() if 'tempfile' in sys.modules else '/tmp', f"debug_pre_yolo_{debug_id}.jpg")
         shutil.copy2(image_path, debug_path)
         
         conf_thresh = self.config.get("ml_pipeline", {}).get("yolo_confidence_threshold", 0.25)
