@@ -146,6 +146,7 @@ frontend/.env.*
 backend/.env
 backend/.env.*
 !backend/.env.example
+backend/generated/
 
 
 # ============================================================
@@ -244,6 +245,7 @@ logs/
 *.temp
 *.bak
 *.cache
+cookies.txt
 
 # ============================================================
 # Node.js / Vite / npm
@@ -264,3 +266,4 @@ frontend/build/
 backend/dist/
 .vite/
 
+scratch/

@@ -226,6 +226,18 @@ class _AssessmentDetailScreenState extends ConsumerState<AssessmentDetailScreen>
             value: aiDetected ? 'Detected' : 'No wound detected'
           ),
           if (aiDetected && m != null) ...[
+            if (m['wound_classification'] is Map) ...[
+              _MeasurementRow(
+                label: 'Wound Type',
+                value: m['wound_classification']['predicted_class']?.toString() ?? 'Unknown',
+              ),
+              _MeasurementRow(
+                label: 'Confidence',
+                value: m['wound_classification']['confidence'] != null 
+                    ? '${((m['wound_classification']['confidence'] as num) * 100).toStringAsFixed(2)}%'
+                    : 'N/A',
+              ),
+            ],
             _MeasurementRow(
               label: 'Color Classification', 
               value: m['color_classification'] is Map 
