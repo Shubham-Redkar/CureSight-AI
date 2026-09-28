@@ -1,0 +1,11 @@
+{
+    "model": "resnet50",
+    "splits_csv": "../data/splits/splits.csv",
+    "output_dir": "../results/resnet50",
+    "model_dir": "../models/resnet50",
+    "batch_size": 16,
+    "learning_rate": 0.0001,
+    "epochs": 15,
+    "seed": 42,
+    "sanity_check": false
+}

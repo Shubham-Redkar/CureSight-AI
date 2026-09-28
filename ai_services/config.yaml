@@ -9,6 +9,8 @@ ml_pipeline:
   roi_padding: 20
   min_mask_ratio: 0.001
   max_mask_ratio: 0.98
+  effnet_model: api/models/classifier/effnet/best.pt
+  resnet_model: api/models/classifier/resnet/best.pt
 
 image_quality:
   min_width: 224 # minimum pixel width  (match model imgsz)

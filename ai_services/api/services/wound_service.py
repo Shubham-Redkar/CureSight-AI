@@ -153,5 +153,6 @@ def process_wound_image(
         message=result.get("message", "Wound analysis completed successfully."),
         annotated_image_base64=annotated_image_base64,
         calibration=result.get("calibration"),
-        physical_measurement_available=result.get("calibration", {}).get("pixels_per_cm") is not None
+        physical_measurement_available=result.get("calibration", {}).get("pixels_per_cm") is not None,
+        wound_classification=result.get("wound_classification")
     )

@@ -9,7 +9,7 @@ import crypto from "crypto";
 import { PrismaClient, UserRole } from "../generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
-import minioClient from "./minio";
+import { supabase } from "./supabase";
 import upload from "./upload";
 
 const app = express();
@@ -478,7 +478,7 @@ app.get("/api/reports/:assessmentId", async (req, res) => {
     const wound = assessment.wound;
     const patient = wound.patient;
 
-    // Construct MinIO image URLs from persisted keys
+    // Construct Supabase image URLs from persisted keys
     const originalUrl = assessment.imageKey
       ? `/api/images/${assessment.imageKey}`
       : null;
@@ -670,25 +670,25 @@ app.get("/api/reports", async (req, res) => {
 });
 
 
-app.get("/api/minio-test", async (req, res) => {
+app.get("/api/supabase-test", async (req, res) => {
   try {
-    const bucket = process.env.MINIO_BUCKET || "wound-images";
+    const bucket = process.env.SUPABASE_STORAGE_BUCKET || "wound-images";
 
-    const exists = await minioClient.bucketExists(bucket);
+    const { data, error } = await supabase.storage.getBucket(bucket);
 
     res.json({
       status: "ok",
-      minioConnected: true,
-      bucketExists: exists,
+      supabaseConnected: !error,
+      bucketExists: !!data,
       bucket: bucket,
     });
   } catch (error) {
-    console.error("MinIO connection error:", error);
+    console.error("Supabase connection error:", error);
 
     res.status(500).json({
       status: "error",
-      minioConnected: false,
-      message: "MinIO connection failed",
+      supabaseConnected: false,
+      message: "Supabase connection failed",
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -702,17 +702,16 @@ app.get(/^\/api\/images\/(.+)$/, async (req, res) => {
       return res.status(400).send("Invalid object key");
     }
 
-    const bucket = process.env.MINIO_BUCKET || "wound-images";
+    const bucket = process.env.SUPABASE_STORAGE_BUCKET || "wound-images";
     
-    // Check if object exists first
-    try {
-      await minioClient.statObject(bucket, objectName);
-    } catch (e) {
+    const { data, error } = await supabase.storage.from(bucket).download(objectName);
+
+    if (error || !data) {
       return res.status(404).send("Image not found");
     }
 
-    const dataStream = await minioClient.getObject(bucket, objectName);
-    
+    const buffer = Buffer.from(await data.arrayBuffer());
+
     // Set proper content type based on extension
     const ext = objectName.split('.').pop()?.toLowerCase();
     let contentType = "application/octet-stream";
@@ -720,7 +719,7 @@ app.get(/^\/api\/images\/(.+)$/, async (req, res) => {
     else if (ext === "png") contentType = "image/png";
     
     res.setHeader("Content-Type", contentType);
-    dataStream.pipe(res);
+    res.send(buffer);
   } catch (error) {
     console.error("Image retrieval error:", error);
     res.status(500).send("Internal server error");
@@ -765,7 +764,7 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
     }
     console.log("[UPLOAD] req.body:", req.body);
 
-    const bucket = process.env.MINIO_BUCKET || "wound-images";
+    const bucket = process.env.SUPABASE_STORAGE_BUCKET || "wound-images";
 
     const extension =
       req.file.originalname.split(".").pop()?.toLowerCase() || "jpg";
@@ -775,15 +774,14 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
         .toString(36)
         .substring(2)}.${extension}`;
 
-    await minioClient.putObject(
-      bucket,
-      objectName,
-      req.file.buffer,
-      req.file.size,
-      {
-        "Content-Type": req.file.mimetype,
-      }
-    );
+    const { error: uploadError } = await supabase.storage.from(bucket).upload(objectName, req.file.buffer, {
+      contentType: req.file.mimetype,
+      upsert: false
+    });
+
+    if (uploadError) {
+      throw new Error(`Supabase upload failed: ${uploadError.message}`);
+    }
 
     // Call FastAPI service
     const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
@@ -855,13 +853,14 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
             const assessmentId = Date.now(); // Unique ID for storage path
             annotatedImageKey = `analysis/${assessmentId}/annotated.jpg`;
             
-            await minioClient.putObject(
-                bucket,
-                annotatedImageKey,
-                buffer,
-                buffer.length,
-                { "Content-Type": "image/jpeg" }
-            );
+            const { error: uploadError2 } = await supabase.storage.from(bucket).upload(annotatedImageKey, buffer, {
+                contentType: "image/jpeg",
+                upsert: false
+            });
+
+            if (uploadError2) {
+              console.error("Annotated upload error:", uploadError2);
+            }
             
             // Clean base64 out of API response
             delete aiAnalysis.annotated_image_base64;
@@ -876,7 +875,8 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
                 color_classification: aiAnalysis.overall_color_classification,
                 wounds: aiAnalysis.wounds,
                 calibration: aiAnalysis.calibration,
-                physical_measurement_available: aiAnalysis.physical_measurement_available
+                physical_measurement_available: aiAnalysis.physical_measurement_available,
+                wound_classification: aiAnalysis.wound_classification
             };
         }
 

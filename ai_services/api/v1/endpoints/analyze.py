@@ -263,7 +263,7 @@ async def process_bytes(image_bytes: bytes, pixels_per_cm: float | None, models:
         prefix = 'flutter'
     else:
         prefix = 'web'
-    debug_path = f"/home/shubham/projects/CureSight-AI/debug_{prefix}_{request_id}.jpg"
+    debug_path = os.path.join(tempfile.gettempdir(), f"debug_{prefix}_{request_id}.jpg")
     shutil.copy2(tmp_path, debug_path)
     logger.info(f"[{request_id}] Saved diagnostic copy to {debug_path}")
     

@@ -30,6 +30,15 @@ class PerWoundResponse(BaseModel):
     mean_lab: list[int] | None = None
     color_classification: WoundStageResponse | None = None
 
+class ClassProbabilities(BaseModel):
+    class_name: str
+    probability: float
+
+class WoundClassification(BaseModel):
+    predicted_class: str
+    confidence: float
+    class_probabilities: dict[str, float]
+
 class AnalyzeWoundResponse(BaseModel):
     wound_detected: bool
     detection_confidence: float | None = None
@@ -44,6 +53,7 @@ class AnalyzeWoundResponse(BaseModel):
     annotated_image_base64: str | None = None
     calibration: dict | None = None
     physical_measurement_available: bool = False
+    wound_classification: WoundClassification | None = None
 
 class ErrorDetails(BaseModel):
     code: str

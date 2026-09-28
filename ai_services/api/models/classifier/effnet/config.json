@@ -1,0 +1,13 @@
+{
+    "model": "efficientnet_b0",
+    "splits_csv": "../data/splits/splits.csv",
+    "output_dir": "../results/phase13/variant_squash",
+    "model_dir": "../models/phase13/variant_squash",
+    "batch_size": 16,
+    "learning_rate": 0.0001,
+    "epochs": 15,
+    "seed": 42,
+    "image_size": 224,
+    "variant": "squash",
+    "sanity_check": false
+}
