@@ -23,7 +23,7 @@ export const TissueAnalysis: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const assessmentId = searchParams.get('assessmentId');
-  const { patients, wounds, assessments, loadAssessments } = useWounds();
+  const { patients, wounds } = useWounds();
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -47,38 +47,37 @@ export const TissueAnalysis: React.FC = () => {
     }
   }, [selectedFile]);
 
-  // Load existing assessment if provided in URL
   useEffect(() => {
     if (assessmentId) {
-      const loadExisting = async () => {
-        // Ensure assessments are loaded
-        if (!assessments.some(a => a.woundId === Number(woundId))) {
-          await loadAssessments(woundId!);
+      const loadAssessment = async () => {
+        try {
+          const res = await apiFetch(`/api/assessments/${assessmentId}`);
+          if (!res.ok) throw new Error('Failed to load assessment');
+          const data = await res.json();
+          if (data.status === 'ok' && data.assessment) {
+            const existing = data.assessment;
+            if (existing.measurements && existing.measurements.tissue_composition) {
+              setStatus('success');
+              setResult({
+                tissue_composition: existing.measurements.tissue_composition,
+                inference_metadata: existing.measurements.inference_metadata || { model_name: 'Unknown', model_version: 'Unknown', message: 'Loaded from history' },
+                annotated_image_base64: existing.annotatedImageKey || null,
+                annotated_image_url: existing.annotatedImageKey ? `/api/images/${existing.annotatedImageKey}` : undefined
+              });
+              
+              if (existing.imageKey) {
+                  setPreviewUrl(`/api/images/${existing.imageKey}`);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error loading assessment', err);
         }
       };
-      loadExisting();
+      
+      loadAssessment();
     }
-  }, [assessmentId, woundId, loadAssessments]);
-
-  useEffect(() => {
-    if (assessmentId && assessments.length > 0) {
-      const existing = assessments.find(a => a.id === Number(assessmentId));
-      if (existing && existing.measurements && existing.measurements.tissue_composition) {
-        setStatus('success');
-        setResult({
-          tissue_composition: existing.measurements.tissue_composition,
-          inference_metadata: existing.measurements.inference_metadata || { model_name: 'Unknown', model_version: 'Unknown', message: 'Loaded from history' },
-          annotated_image_base64: existing.annotatedImageKey || null,
-          annotated_image_url: existing.annotatedImageKey ? `/api/images/${existing.annotatedImageKey}` : undefined
-        });
-        
-        // Show the original image in the preview if possible
-        if (existing.imageKey) {
-            setPreviewUrl(`/api/images/${existing.imageKey}`);
-        }
-      }
-    }
-  }, [assessmentId, assessments]);
+  }, [assessmentId]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {

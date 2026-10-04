@@ -385,6 +385,43 @@ app.get("/api/assessments", async (req, res) => {
   }
 });
 
+app.get("/api/assessments/:id", async (req, res) => {
+  try {
+    const assessmentId = Number(req.params.id);
+    if (isNaN(assessmentId)) {
+      return res.status(400).json({
+        status: "error",
+        error: "INVALID_ASSESSMENT_ID",
+        message: "Assessment ID must be a number."
+      });
+    }
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId }
+    });
+
+    if (!assessment) {
+      return res.status(404).json({
+        status: "error",
+        error: "ASSESSMENT_NOT_FOUND",
+        message: "The referenced assessment does not exist."
+      });
+    }
+
+    res.json({
+      status: "ok",
+      assessment
+    });
+  } catch (error) {
+    console.error("Assessment fetch error:", error);
+    res.status(500).json({
+      status: "error",
+      error: "INTERNAL_ERROR",
+      message: "Failed to fetch assessment",
+    });
+  }
+});
+
 app.patch("/api/assessments/:id/verify", requireRoles(["DOCTOR", "ADMIN"]), async (req, res) => {
   try {
     const id = Number(req.params.id);
