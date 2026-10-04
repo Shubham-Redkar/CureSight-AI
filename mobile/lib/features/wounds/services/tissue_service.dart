@@ -5,13 +5,14 @@ import '../../../core/errors/api_error_handler.dart';
 import '../models/tissue_model.dart';
 
 class TissueService {
-  Future<AnalyzeTissueResponse> analyzeTissue(File imageFile) async {
+  Future<AnalyzeTissueResponse> analyzeTissue(File imageFile, int woundId) async {
     try {
       final dio = await DioClient.getInstance();
       
       String fileName = imageFile.path.split('/').last;
       FormData formData = FormData.fromMap({
         "image": await MultipartFile.fromFile(imageFile.path, filename: fileName),
+        "woundId": woundId.toString(),
       });
 
       final response = await dio.post('/analysis/tissue', data: formData);

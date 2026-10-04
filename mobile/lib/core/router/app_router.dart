@@ -137,8 +137,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/wounds/:woundId/tissue',
         builder: (context, state) {
-          final wound = state.extra as WoundModel;
-          return TissueAnalysisScreen(wound: wound);
+          final extra = state.extra as Map<String, dynamic>;
+          final wound = extra['wound'] as WoundModel;
+          final assessment = extra['assessment'] as AssessmentModel?;
+          return TissueAnalysisScreen(wound: wound, assessment: assessment);
         },
       ),
       GoRoute(

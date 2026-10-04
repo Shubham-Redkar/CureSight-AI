@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../../../core/config/env_config.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
@@ -10,11 +11,13 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/wound_model.dart';
 import '../models/tissue_model.dart';
+import '../../assessments/models/assessment_model.dart';
 import '../services/tissue_service.dart';
 
 class TissueAnalysisScreen extends StatefulWidget {
   final WoundModel wound;
-  const TissueAnalysisScreen({super.key, required this.wound});
+  final AssessmentModel? assessment;
+  const TissueAnalysisScreen({super.key, required this.wound, this.assessment});
 
   @override
   State<TissueAnalysisScreen> createState() => _TissueAnalysisScreenState();
@@ -28,6 +31,22 @@ class _TissueAnalysisScreenState extends State<TissueAnalysisScreen> {
   
   final ImagePicker _picker = ImagePicker();
   final TissueService _tissueService = TissueService();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.assessment != null && widget.assessment!.measurements?['tissue_composition'] != null) {
+      final comp = widget.assessment!.measurements!['tissue_composition'];
+      final inference = widget.assessment!.measurements!['inference_metadata'];
+      _response = AnalyzeTissueResponse(
+        tissueComposition: TissueCompositionPercentages.fromJson(comp),
+        inferenceMetadata: InferenceMetadata.fromJson(inference ?? {}),
+        annotatedImageBase64: widget.assessment!.annotatedImageKey != null 
+            ? '${EnvConfig.apiBaseUrl}/images/${widget.assessment!.annotatedImageKey}'
+            : null,
+      );
+    }
+  }
 
   Future<void> _pickImage(ImageSource source) async {
     try {
@@ -106,7 +125,7 @@ class _TissueAnalysisScreenState extends State<TissueAnalysisScreen> {
     });
 
     try {
-      final result = await _tissueService.analyzeTissue(_selectedImage!);
+      final result = await _tissueService.analyzeTissue(_selectedImage!, widget.wound.id);
       setState(() {
         _response = result;
         _isUploading = false;
@@ -209,8 +228,12 @@ class _TissueAnalysisScreenState extends State<TissueAnalysisScreen> {
     ImageProvider? annotatedImage;
     if (_response!.annotatedImageBase64 != null) {
       String b64 = _response!.annotatedImageBase64!;
-      if (b64.contains(',')) b64 = b64.split(',').last;
-      annotatedImage = MemoryImage(base64Decode(b64));
+      if (b64.startsWith('http')) {
+        annotatedImage = NetworkImage(b64);
+      } else {
+        if (b64.contains(',')) b64 = b64.split(',').last;
+        annotatedImage = MemoryImage(base64Decode(b64));
+      }
     }
 
     return Column(
