@@ -7,7 +7,7 @@
     "build": "prisma generate && tsc",
     "start": "node dist/src/server.js",
     "migrate:deploy": "prisma migrate deploy",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --import tsx --test tests/test_tissue_gateway.ts",
     "postinstall": "prisma skills sync || exit 0"
   },
   "keywords": [],
@@ -34,7 +34,9 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.2.0",
     "@types/node": "^26.4.0",
+    "@types/supertest": "^7.2.1",
     "prisma": "^7.10.0",
+    "supertest": "^7.3.0",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }

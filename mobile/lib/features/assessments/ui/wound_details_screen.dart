@@ -19,10 +19,24 @@ class WoundDetailsScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Wound Details'),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/assessments/new', extra: wound),
-        icon: const Icon(Icons.camera_alt),
-        label: const Text('Analyze New Image'),
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'analyze_tissue',
+            onPressed: () => context.push('/wounds/${wound.id}/tissue', extra: wound),
+            icon: const Icon(Icons.biotech),
+            label: const Text('Analyze Tissue'),
+            backgroundColor: Colors.blue.shade700,
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton.extended(
+            heroTag: 'analyze_new',
+            onPressed: () => context.push('/assessments/new', extra: wound),
+            icon: const Icon(Icons.camera_alt),
+            label: const Text('Analyze New Image'),
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: () async => ref.invalidate(assessmentsProvider(wound.id)),

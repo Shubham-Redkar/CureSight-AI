@@ -14,8 +14,11 @@ import upload from "./upload";
 
 const app = express();
 
+const isProduction = process.env.NODE_ENV === "production";
+const frontendUrl = process.env.FRONTEND_URL;
+
 app.use(cors({
-  origin: true,
+  origin: isProduction && frontendUrl ? frontendUrl : true,
   credentials: true,
 }));
 app.use(express.json());
@@ -110,8 +113,8 @@ app.post("/api/auth/login", async (req, res) => {
 
     res.cookie("token", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
       maxAge: 8 * 60 * 60 * 1000,
     });
 
@@ -927,6 +930,71 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
   }
 });
 
+// Tissue Analysis Upload
+app.post("/api/analysis/tissue", requireAuth, requireRoles(["DOCTOR", "ADMIN"]), upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        status: "error",
+        message: "No image uploaded",
+      });
+    }
+
+    // Call FastAPI service
+    const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+    
+    const formData = new FormData();
+    const blob = new Blob([new Uint8Array(req.file.buffer)], { type: req.file.mimetype });
+    formData.append("file", blob, req.file.originalname);
+
+    const aiResponse = await fetch(`${FASTAPI_URL}/api/v1/analyze-tissue-upload/`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!aiResponse.ok) {
+      const errorText = await aiResponse.text();
+      
+      // Forward structured FastAPI errors
+      if (aiResponse.status === 422 || aiResponse.status === 400 || aiResponse.status === 503) {
+        try {
+          const errJson = JSON.parse(errorText);
+          return res.status(aiResponse.status).json(errJson);
+        } catch (e) {
+          // fallback
+        }
+      } else if (aiResponse.status === 413) {
+        return res.status(413).json({
+          status: "error",
+          error: "IMAGE_TOO_LARGE",
+          message: "Image is too large."
+        });
+      }
+      
+      console.error(`[TISSUE UPLOAD] FastAPI request failed: status=${aiResponse.status} body=${errorText}`);
+      return res.status(500).json({
+        status: "error",
+        error: "AI_ANALYSIS_FAILED",
+        message: "Failed to process tissue analysis via AI service."
+      });
+    }
+    
+    const aiAnalysis = await aiResponse.json();
+    
+    res.json({
+      status: "ok",
+      ...aiAnalysis
+    });
+  } catch (error: any) {
+    console.error("[TISSUE UPLOAD] Error:", error);
+    res.status(500).json({
+      status: "error",
+      error: "INTERNAL_ERROR",
+      message: "Tissue upload failed",
+    });
+  }
+});
+
 // Start server
 const PORT = Number(process.env.PORT) || 5000;
 
@@ -948,3 +1016,5 @@ process.on("SIGINT", async () => {
     process.exit(0);
   });
 });
+
+export { app, server };

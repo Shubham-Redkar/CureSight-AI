@@ -9,6 +9,10 @@ class DioClient {
   static Dio? _dio;
   static PersistCookieJar? _cookieJar;
 
+  static void setMockDio(Dio mock) {
+    _dio = mock;
+  }
+
   static Future<Dio> getInstance() async {
     if (_dio != null) return _dio!;
 
@@ -35,12 +39,30 @@ class DioClient {
     // Add Cookie Manager
     _dio!.interceptors.add(CookieManager(_cookieJar!));
 
-    // Optional: Add logging interceptor in dev
-    _dio!.interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-      error: true,
-    ));
+    _dio!.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          print('===> [DIO REQUEST] ${options.method} ${options.uri}');
+          print('===> [DIO BASE URL] ${options.baseUrl}');
+          return handler.next(options);
+        },
+        onResponse: (response, handler) {
+          print('<=== [DIO RESPONSE] ${response.statusCode} ${response.requestOptions.uri}');
+          return handler.next(response);
+        },
+        onError: (DioException e, handler) {
+          print('xxx> [DIO ERROR] type: ${e.type}, message: ${e.message}');
+          print('xxx> [DIO ERROR URI] ${e.requestOptions.uri}');
+          if (e.error != null) {
+            print('xxx> [DIO UNDERLYING ERROR] ${e.error}');
+          }
+          if (e.response != null) {
+            print('xxx> [DIO RESPONSE STATUS] ${e.response?.statusCode}');
+          }
+          return handler.next(e);
+        },
+      ),
+    );
 
     return _dio!;
   }

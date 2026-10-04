@@ -3,6 +3,6 @@ class EnvConfig {
   // ADB command: adb reverse tcp:5000 tcp:5000
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://127.0.0.1:5000/api',
+    defaultValue: 'https://curesight-ai.onrender.com/api',
   );
 }

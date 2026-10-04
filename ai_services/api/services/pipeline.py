@@ -45,12 +45,12 @@ class MLPipeline:
         ml_cfg = self.config.get("ml_pipeline", {})
         
         self.wound_gate = WoundGate(
-            model_path=resolve_model_path(ml_cfg.get("wound_gate_model", "ml/models/wound_gate/best.pt")),
+            model_path=resolve_model_path(ml_cfg.get("wound_gate_model", "api/models/wound_gate/best.pt")),
             required=ml_cfg.get("require_wound_gate", False)
         )
         
         self.yolo = YoloDetector(
-            model_path=resolve_model_path(ml_cfg.get("yolo_model", "ml/models/yolo/best.pt")),
+            model_path=resolve_model_path(ml_cfg.get("yolo_model", "api/models/yolo/best.pt")),
             required=ml_cfg.get("require_yolo", True)
         )
         
@@ -59,7 +59,7 @@ class MLPipeline:
         )
         
         self.unet = UNetSegmenter(
-            model_path=resolve_model_path(ml_cfg.get("unet_model", "ml/models/unet/best.pth")),
+            model_path=resolve_model_path(ml_cfg.get("unet_model", "api/models/unet/best.pth")),
             required=ml_cfg.get("require_unet", True)
         )
         

@@ -41,19 +41,19 @@ export const Button: React.FC<ButtonProps> = ({
   disabled,
   ...props
 }) => {
-  const base = 'inline-flex items-center justify-center font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none';
+  const base = 'inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-teal-600 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none';
   
   const variants = {
-    primary: 'bg-teal-700 hover:bg-teal-800 text-white shadow-xs',
+    primary: 'bg-teal-600 hover:bg-teal-700 text-white shadow-sm',
     secondary: 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs',
-    danger: 'bg-rose-600 hover:bg-rose-700 text-white shadow-xs',
+    danger: 'bg-rose-600 hover:bg-rose-700 text-white shadow-sm',
     ghost: 'hover:bg-slate-50 text-slate-600',
   };
 
   const sizes = {
-    sm: 'px-3 py-1.5 text-xs',
-    md: 'px-4 py-2 text-sm',
-    lg: 'px-5 py-2.5 text-base',
+    sm: 'px-3 py-2 text-sm',
+    md: 'px-4 py-3 text-base font-semibold',
+    lg: 'px-5 py-4 text-lg font-bold',
   };
 
   return (
@@ -80,7 +80,7 @@ export const Input: React.FC<InputProps> = ({ label, error, className = '', ...p
     <div className="w-full">
       {label && <label className="block text-xs font-medium text-slate-600 mb-1">{label}</label>}
       <input
-        className={`w-full px-3 py-2 text-sm bg-white border rounded-md shadow-2xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:border-teal-500 transition-colors ${
+        className={`w-full px-4 py-3.5 text-base bg-white border rounded-lg text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-teal-600 focus:border-teal-600 transition-colors ${
           error ? 'border-rose-300 focus:ring-rose-500 focus:border-rose-500' : 'border-slate-200'
         } ${className}`}
         {...props}
@@ -102,7 +102,7 @@ export const Select: React.FC<SelectProps> = ({ label, error, children, classNam
       {label && <label className="block text-xs font-medium text-slate-600 mb-1">{label}</label>}
       <div className="relative">
         <select
-          className={`w-full px-3 py-2 text-sm bg-white border rounded-md shadow-2xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-teal-500 focus:border-teal-500 transition-colors appearance-none ${
+          className={`w-full px-4 py-3.5 text-base bg-white border rounded-lg text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-600 focus:border-teal-600 transition-colors appearance-none ${
             error ? 'border-rose-300 focus:ring-rose-500 focus:border-rose-500' : 'border-slate-200'
           } ${className}`}
           {...props}
@@ -133,7 +133,7 @@ interface CardProps {
 
 export const Card: React.FC<CardProps> = ({ title, subtitle, headerAction, children, className = '' }) => {
   return (
-    <div className={`bg-white border border-slate-200 rounded-lg shadow-2xs ${className}`}>
+    <div className={`bg-white border border-slate-200 rounded-xl shadow-sm ${className}`}>
       {(title || subtitle || headerAction) && (
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div>

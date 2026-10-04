@@ -4,7 +4,38 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile/features/assessments/ui/assessment_detail_screen.dart';
 import 'package:mobile/features/assessments/models/assessment_model.dart';
 
+import 'package:dio/dio.dart';
+import 'package:mobile/core/network/dio_client.dart';
+
 void main() {
+  setUpAll(() {
+    final dio = Dio();
+    dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        if (options.path.contains('/auth/me')) {
+          return handler.resolve(Response(
+            requestOptions: options,
+            statusCode: 200,
+            data: {'authenticated': true, 'user': {'id': '1', 'username': 'test_user', 'role': 'DOCTOR'}}
+          ));
+        }
+        if (options.path.contains('/assessments')) {
+          return handler.resolve(Response(
+            requestOptions: options,
+            statusCode: 200,
+            data: {'assessments': []}
+          ));
+        }
+        return handler.resolve(Response(
+          requestOptions: options,
+          statusCode: 200,
+          data: {}
+        ));
+      }
+    ));
+    DioClient.setMockDio(dio);
+  });
+
   group('AssessmentDetailScreen Measurements Section', () {
     Widget buildTestWidget(AssessmentModel assessment) {
       return ProviderScope(
@@ -201,7 +232,7 @@ void main() {
       await tester.pumpWidget(buildTestWidget(assessment));
       await tester.pumpAndSettle();
 
-      expect(find.text('Doctor Verification'), findsNothing);
+      expect(find.text('Doctor Verification'), findsOneWidget); // Because mocked user is DOCTOR
       expect(find.text('Verified'), findsNothing);
     });
   });
