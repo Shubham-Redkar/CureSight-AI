@@ -947,6 +947,26 @@ app.post("/api/analysis/tissue", requireAuth, requireRoles(["DOCTOR", "ADMIN"]),
     const blob = new Blob([new Uint8Array(req.file.buffer)], { type: req.file.mimetype });
     formData.append("file", blob, req.file.originalname);
 
+    const woundId = req.body.woundId ? Number(req.body.woundId) : null;
+    
+    if (woundId && isNaN(woundId)) {
+      return res.status(400).json({ status: "error", message: "Invalid wound ID" });
+    }
+
+    // Upload original image to Supabase
+    const bucket = process.env.SUPABASE_STORAGE_BUCKET || "wound-images";
+    const extension = req.file.originalname.split(".").pop()?.toLowerCase() || "jpg";
+    const objectName = `tissue/${Date.now()}-${Math.random().toString(36).substring(2)}.${extension}`;
+    
+    const { error: uploadError } = await supabase.storage.from(bucket).upload(objectName, req.file.buffer, {
+      contentType: req.file.mimetype,
+      upsert: false
+    });
+
+    if (uploadError) {
+      console.error("Original image upload error:", uploadError);
+    }
+
     const aiResponse = await fetch(`${FASTAPI_URL}/api/v1/analyze-tissue-upload/`, {
       method: "POST",
       body: formData,
@@ -981,8 +1001,45 @@ app.post("/api/analysis/tissue", requireAuth, requireRoles(["DOCTOR", "ADMIN"]),
     
     const aiAnalysis = await aiResponse.json();
     
+    let createdAssessment = null;
+    if (woundId && aiAnalysis.tissue_composition) {
+        let annotatedImageKey: string | null = null;
+        if (aiAnalysis.annotated_image_base64) {
+            let base64Data = aiAnalysis.annotated_image_base64;
+            if (base64Data.includes("base64,")) {
+                base64Data = base64Data.split("base64,")[1];
+            }
+            const buffer = Buffer.from(base64Data, 'base64');
+            annotatedImageKey = `tissue-analysis/${Date.now()}/annotated.jpg`;
+            const { error: uploadError2 } = await supabase.storage.from(bucket).upload(annotatedImageKey, buffer, {
+                contentType: "image/jpeg",
+                upsert: false
+            });
+            if (!uploadError2) {
+                // Return the URL for the frontend
+                aiAnalysis.annotated_image_url = `/api/images/${annotatedImageKey}`;
+            }
+        }
+
+        createdAssessment = await prisma.assessment.create({
+            data: {
+                woundId,
+                imageKey: objectName,
+                annotatedImageKey,
+                measurements: {
+                    tissue_composition: aiAnalysis.tissue_composition,
+                    inference_metadata: aiAnalysis.inference_metadata
+                },
+                woundDetected: true,
+                status: "COMPLETED",
+                notes: "Tissue Analysis"
+            }
+        });
+    }
+
     res.json({
       status: "ok",
+      assessment: createdAssessment,
       ...aiAnalysis
     });
   } catch (error: any) {

@@ -11,6 +11,7 @@ vi.mock('../utils/api');
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
   useParams: () => ({ woundId: '1' }),
+  useSearchParams: () => [new URLSearchParams(), vi.fn()],
 }));
 
 describe('TissueAnalysis', () => {
