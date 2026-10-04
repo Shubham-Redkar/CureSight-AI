@@ -1,3 +1,4 @@
 *.pth filter=lfs diff=lfs merge=lfs -text
 ai_services/api/models/unet/best.pth filter=lfs diff=lfs merge=lfs -text
 ai_services/api/models/classifier/resnet/best.pt filter=lfs diff=lfs merge=lfs -text
+ai_services/api/models/tissue/best.pt filter=lfs diff=lfs merge=lfs -text

@@ -16,6 +16,7 @@ import '../../features/assessments/models/assessment_model.dart';
 import '../../features/assessments/ui/wound_details_screen.dart';
 import '../../features/assessments/ui/assessment_detail_screen.dart';
 import '../../features/assessments/ui/image_upload_screen.dart';
+import '../../features/wounds/ui/tissue_analysis_screen.dart';
 
 // Create a Listenable that notifies when authState changes
 class RouterNotifier extends ChangeNotifier {
@@ -131,6 +132,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final wound = state.extra as WoundModel;
           return ImageUploadScreen(wound: wound);
+        },
+      ),
+      GoRoute(
+        path: '/wounds/:woundId/tissue',
+        builder: (context, state) {
+          final wound = state.extra as WoundModel;
+          return TissueAnalysisScreen(wound: wound);
         },
       ),
       GoRoute(

@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -9,7 +10,7 @@ cfg = load_config()
 ml_models = {}
 
 from api.services.pipeline import MLPipeline
-
+from api.services.tissue_segmenter import TissueSegmenter
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -22,6 +23,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         print(f"Warning: Failed to load ML Pipeline: {e}")
         ml_models["pipeline"] = None
+        
+    print("Loading Tissue Segmenter...")
+    try:
+        tissue_model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "tissue", "best.pt")
+        tissue_seg = TissueSegmenter(tissue_model_path, required=False)
+        tissue_seg.load()
+        ml_models["tissue_segmenter"] = tissue_seg
+        print("Tissue Segmenter loaded successfully.")
+    except Exception as e:
+        print(f"Warning: Failed to load Tissue Segmenter: {e}")
+        ml_models["tissue_segmenter"] = None
 
     yield
     

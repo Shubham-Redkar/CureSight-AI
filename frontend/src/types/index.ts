@@ -62,12 +62,4 @@ export interface Assessment {
   };
 }
 
-export interface ClinicalReport {
-  id: string;
-  patientId: string;
-  woundId: string;
-  generatedDate: string;
-  assessmentPeriodStart: string;
-  assessmentPeriodEnd: string;
-  status: 'Draft' | 'Final';
-}
+

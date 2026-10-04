@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Users,
-  ClipboardCheck,
-  TrendingUp,
   FileText,
   Settings,
   LogOut,
@@ -15,16 +14,12 @@ import {
 import { useAuth } from '../../context/AuthContext';
 
 interface ShellProps {
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
   children: React.ReactNode;
   clinicName: string;
   practitionerRole: string;
 }
 
 export const Shell: React.FC<ShellProps> = ({
-  activeTab,
-  setActiveTab,
   children,
   clinicName,
   practitionerRole,
@@ -32,18 +27,25 @@ export const Shell: React.FC<ShellProps> = ({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const { user, logout } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Highlight active link based on current path
+  const isActive = (path: string) => {
+    if (path === '/dashboard' && location.pathname === '/dashboard') return true;
+    if (path !== '/dashboard' && location.pathname.startsWith(path)) return true;
+    return false;
+  };
 
   const navigationItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'patients', label: 'Patients', icon: Users },
-    { id: 'assessment', label: 'Wound Assessment', icon: ClipboardCheck },
-    { id: 'progress', label: 'Progress Analysis', icon: TrendingUp },
-    { id: 'reports', label: 'Reports', icon: FileText },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'dashboard', path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'patients', path: '/patients', label: 'Patients', icon: Users },
+    { id: 'reports', path: '/reports', label: 'Reports', icon: FileText },
+    { id: 'settings', path: '/settings', label: 'Settings', icon: Settings },
   ];
 
-  const handleNavClick = (tabId: string) => {
-    setActiveTab(tabId);
+  const handleNavClick = (path: string) => {
+    navigate(path);
     setIsMobileMenuOpen(false);
   };
 
@@ -94,18 +96,18 @@ export const Shell: React.FC<ShellProps> = ({
           <nav className="flex-1 px-4 py-6 space-y-1">
             {navigationItems.map(item => {
               const Icon = item.icon;
-              const isActive = activeTab === item.id;
+              const active = isActive(item.path);
               return (
                 <button
                   key={item.id}
-                  onClick={() => handleNavClick(item.id)}
+                  onClick={() => handleNavClick(item.path)}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors cursor-pointer ${
-                    isActive
+                    active
                       ? 'bg-teal-50 text-teal-800 border-l-2 border-teal-700'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-teal-700' : 'text-slate-400'}`} />
+                  <Icon className={`w-4 h-4 ${active ? 'text-teal-700' : 'text-slate-400'}`} />
                   {item.label}
                 </button>
               );
@@ -135,7 +137,7 @@ export const Shell: React.FC<ShellProps> = ({
                   </div>
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 transition-colors"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     Logout Session
@@ -155,35 +157,35 @@ export const Shell: React.FC<ShellProps> = ({
               onClick={() => setIsMobileMenuOpen(false)}
             />
             {/* Menu panel */}
-            <div className="relative flex flex-col w-64 max-w-xs bg-white h-full shadow-xl border-r border-slate-200 py-4 px-3 z-50">
-              <div className="flex items-center justify-between px-3 pb-4 border-b border-slate-100 mb-4">
-                <div className="flex items-center gap-2">
-                  <HeartPulse className="w-5 h-5 text-teal-700" />
-                  <span className="font-semibold text-slate-900 text-sm">CureSight AI</span>
-                </div>
+            <div className="relative flex flex-col w-64 max-w-xs bg-white h-full shadow-xl z-50">
+              <div className="bg-teal-600 px-4 pt-8 pb-4 mb-2 relative shrink-0 min-h-[160px] flex flex-col justify-end">
                 <button
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 focus:outline-hidden"
+                  className="absolute top-4 right-4 text-white/70 hover:text-white focus:outline-hidden"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-6 h-6" />
                 </button>
+                <div className="flex flex-col">
+                  <span className="font-bold text-white text-2xl tracking-tight">CureSight AI</span>
+                  <span className="text-white/70 text-sm mt-1">Clinical System</span>
+                </div>
               </div>
 
               <nav className="flex-1 space-y-1">
                 {navigationItems.map(item => {
                   const Icon = item.icon;
-                  const isActive = activeTab === item.id;
+                  const active = isActive(item.path);
                   return (
                     <button
                       key={item.id}
-                      onClick={() => handleNavClick(item.id)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
-                        isActive
+                      onClick={() => handleNavClick(item.path)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors cursor-pointer ${
+                        active
                           ? 'bg-teal-50 text-teal-850 border-l-2 border-teal-700'
                           : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                       }`}
                     >
-                      <Icon className={`w-4 h-4 ${isActive ? 'text-teal-700' : 'text-slate-400'}`} />
+                      <Icon className={`w-4 h-4 ${active ? 'text-teal-700' : 'text-slate-400'}`} />
                       {item.label}
                     </button>
                   );
@@ -202,7 +204,7 @@ export const Shell: React.FC<ShellProps> = ({
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium text-rose-600 hover:bg-rose-50 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                 >
                   <LogOut className="w-4 h-4" />
                   Logout Session
@@ -240,18 +242,18 @@ export const Shell: React.FC<ShellProps> = ({
 
       {/* MOBILE BOTTOM NAVIGATION (Tab bar layout) */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-30 flex justify-around py-1 shadow-md">
-        {navigationItems.slice(0, 5).map(item => {
+        {navigationItems.map(item => {
           const Icon = item.icon;
-          const isActive = activeTab === item.id;
+          const active = isActive(item.path);
           return (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors ${
-                isActive ? 'text-teal-700 font-bold' : 'text-slate-500 hover:text-slate-700'
+              onClick={() => handleNavClick(item.path)}
+              className={`flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                active ? 'text-teal-700 font-bold' : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              <Icon className={`w-5 h-5 mb-0.5 ${isActive ? 'text-teal-700' : 'text-slate-400'}`} />
+              <Icon className={`w-5 h-5 mb-0.5 ${active ? 'text-teal-700' : 'text-slate-400'}`} />
               <span>{item.label.split(' ')[0]}</span>
             </button>
           );

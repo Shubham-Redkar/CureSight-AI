@@ -4,21 +4,12 @@ import { TrendingDown, Layers, Clock, TrendingUp, Info } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import type { Patient, Wound, Assessment } from '../types';
 
-interface ProgressAnalysisProps {
-  selectedPatientId: string | null;
-  setSelectedPatientId: (id: string | null) => void;
-  selectedWoundId: string | null;
-  setSelectedWoundId: (id: string | null) => void;
-  setActiveTab: (tab: string) => void;
-}
+import { useParams, useNavigate } from 'react-router-dom';
 
-export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
-  selectedPatientId,
-  setSelectedPatientId,
-  selectedWoundId,
-  setSelectedWoundId,
-  setActiveTab,
-}) => {
+export const ProgressAnalysis: React.FC = () => {
+  const { woundId } = useParams<{ woundId: string }>();
+  const navigate = useNavigate();
+
   // Data fetching states
   const [patients, setPatients] = useState<Patient[]>([]);
   const [patientWounds, setPatientWounds] = useState<Wound[]>([]);
@@ -30,6 +21,8 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
   const [customLeftAssId, setCustomLeftAssId] = useState<string>('');
   const [customRightAssId, setCustomRightAssId] = useState<string>('');
 
+  const [selectedPatientId, setSelectedPatientId] = useState<string>('');
+
   useEffect(() => {
     let isMounted = true;
     apiFetch('/api/patients').then(res => res.json()).then(data => {
@@ -38,25 +31,37 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
     return () => { isMounted = false; };
   }, []);
 
+  // Update selectedPatientId when woundId or patients/wounds change
+  useEffect(() => {
+    if (woundId && patientWounds.length > 0) {
+      const w = patientWounds.find(w => String(w.id) === woundId);
+      if (w) setSelectedPatientId(String(w.patientId));
+    }
+  }, [woundId, patientWounds]);
+
+  // Fetch all wounds across all patients (or just fetch them once) to support wound finding
   useEffect(() => {
     let isMounted = true;
-    if (selectedPatientId) {
-      setLoading(true);
-      apiFetch(`/api/wounds?patientId=${selectedPatientId}`).then(res => res.json()).then(data => {
-        if (isMounted && data.status === 'ok') setPatientWounds(data.wounds || []);
-        if (isMounted) setLoading(false);
-      }).catch(() => { if (isMounted) setLoading(false); });
-    } else {
-      setPatientWounds([]);
-    }
+    apiFetch('/api/wounds').then(res => res.json()).then(data => {
+      if (isMounted && data.status === 'ok') setPatientWounds(data.wounds || []);
+    }).catch(console.error);
     return () => { isMounted = false; };
-  }, [selectedPatientId]);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
-    if (selectedWoundId) {
+    apiFetch('/api/patients').then(res => res.json()).then(data => {
+      if (isMounted && data.status === 'ok') setPatients(data.patients || []);
+    }).catch(console.error);
+    return () => { isMounted = false; };
+  }, []);
+
+
+  useEffect(() => {
+    let isMounted = true;
+    if (woundId) {
       setLoading(true);
-      apiFetch(`/api/assessments?woundId=${selectedWoundId}`).then(res => res.json()).then(data => {
+      apiFetch(`/api/assessments?woundId=${woundId}`).then(res => res.json()).then(data => {
         if (isMounted && data.status === 'ok') {
           const mapped = data.assessments.map((assessment: any) => {
             let aiResult = undefined;
@@ -90,9 +95,9 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
       setWoundAssessments([]);
     }
     return () => { isMounted = false; };
-  }, [selectedWoundId]);
+  }, [woundId]);
 
-  const activeWound = patientWounds.find(w => w.id === Number(selectedWoundId));
+  const activeWound = patientWounds.find(w => String(w.id) === woundId);
 
   // Set default comparison IDs when assessments change
   useEffect(() => {
@@ -100,7 +105,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
       setCustomLeftAssId(String(woundAssessments[0].id));
       setCustomRightAssId(String(woundAssessments[woundAssessments.length - 1].id));
     }
-  }, [selectedWoundId, woundAssessments]);
+  }, [woundId, woundAssessments]);
 
   // Determine compare images based on mode
   let leftAssessment: Assessment | undefined;
@@ -249,8 +254,7 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
             label="Select Patient ID"
             value={selectedPatientId || ''}
             onChange={e => {
-              setSelectedPatientId(e.target.value || null);
-              setSelectedWoundId(null);
+              setSelectedPatientId(e.target.value);
             }}
           >
             <option value="">-- Choose Patient ID --</option>
@@ -261,12 +265,14 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
 
           <Select
             label="Select Wound Site"
-            value={selectedWoundId || ''}
+            value={woundId || ''}
             disabled={!selectedPatientId}
-            onChange={e => setSelectedWoundId(e.target.value || null)}
+            onChange={e => {
+              if (e.target.value) navigate(`/wounds/${e.target.value}/progress`);
+            }}
           >
             <option value="">-- Choose Anatomical Site --</option>
-            {patientWounds.map(w => (
+            {patientWounds.filter(w => String(w.patientId) === selectedPatientId).map(w => (
               <option key={w.id} value={w.id}>{w.location} ({w.description || 'Unspecified'})</option>
             ))}
           </Select>
@@ -300,8 +306,8 @@ export const ProgressAnalysis: React.FC<ProgressAnalysisProps> = ({
           </p>
           <div className="mt-5">
             <Button
-              onClick={() => setActiveTab('assessment')}
-              className="text-xs py-1.5 cursor-pointer"
+              onClick={() => navigate(`/assessments/new?woundId=${woundId}&patientId=${selectedPatientId}`)}
+              className="text-xs py-1.5 cursor-pointer bg-teal-700 text-white hover:bg-teal-800"
             >
               Perform Next Assessment
             </Button>

@@ -80,7 +80,7 @@ void main() {
         type: DioExceptionType.badResponse,
       );
       final message = ApiErrorHandler.getMessage(dioException);
-      expect(message, "The analysis service is temporarily unavailable. Please try again later.");
+      expect(message, "The server encountered an error (500). Please try again later.");
     });
 
     test('handles Connection Timeout', () {
@@ -89,7 +89,7 @@ void main() {
         type: DioExceptionType.connectionTimeout,
       );
       final message = ApiErrorHandler.getMessage(dioException);
-      expect(message, "The request timed out. Please try again.");
+      expect(message, "The connection timed out. Please check your internet and try again.");
     });
 
     test('handles Connection Error', () {
@@ -98,7 +98,7 @@ void main() {
         type: DioExceptionType.connectionError,
       );
       final message = ApiErrorHandler.getMessage(dioException);
-      expect(message, "Unable to connect to the server. Please check your connection.");
+      expect(message, "Unable to reach the server. Please check your internet connection.");
     });
 
     test('handles Unknown Exception', () {
@@ -187,7 +187,7 @@ void main() {
         type: DioExceptionType.badResponse,
       );
       final message = ApiErrorHandler.getMessage(dioException);
-      expect(message, "This image is too large to analyze. Please choose a smaller image and try again.");
+      expect(message, "This image is too large to analyze. Please choose a smaller image.");
     });
   });
 }

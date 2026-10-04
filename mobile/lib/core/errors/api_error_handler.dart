@@ -3,8 +3,19 @@ import 'package:dio/dio.dart';
 
 class ApiErrorHandler {
   static String getMessage(dynamic error) {
-    // Preserve original technical error for developer logging
-    log('API Error: $error', name: 'ApiErrorHandler');
+    // Preserve original technical error for developer logging in logcat
+    print('================ API ERROR DETAILS ================');
+    print('Type: ${error.runtimeType}');
+    if (error is DioException) {
+      print('DioError Type: ${error.type}');
+      print('DioError Message: ${error.message}');
+      print('Underlying Error: ${error.error}');
+      print('URI: ${error.requestOptions.uri}');
+      print('Response Status: ${error.response?.statusCode}');
+    } else {
+      print('Error: $error');
+    }
+    print('===================================================');
 
     if (error is Exception) {
       try {
@@ -13,21 +24,22 @@ class ApiErrorHandler {
             case DioExceptionType.connectionTimeout:
             case DioExceptionType.sendTimeout:
             case DioExceptionType.receiveTimeout:
-              return "The request timed out. Please try again.";
+              return "The connection timed out. Please check your internet and try again.";
             case DioExceptionType.connectionError:
-              return "Unable to connect to the server. Please check your connection.";
+              // DNS or network unavailable
+              return "Unable to reach the server. Please check your internet connection.";
+            case DioExceptionType.badCertificate:
+              return "Security error: Unable to verify server certificate.";
             case DioExceptionType.badResponse:
               final statusCode = error.response?.statusCode;
               final responseData = error.response?.data;
               
-              if (statusCode == 401) {
-                return "Your session has expired. Please log in again.";
-              } else if (statusCode == 403) {
+              if (statusCode == 401 || statusCode == 403) {
                 return "Your session has expired. Please log in again.";
               } else if (statusCode == 404) {
                 return "The requested resource was not found.";
               } else if (statusCode == 413) {
-                return "This image is too large to analyze. Please choose a smaller image and try again.";
+                return "This image is too large to analyze. Please choose a smaller image.";
               } else if (statusCode == 422 || statusCode == 503) {
                 if (responseData is Map<String, dynamic>) {
                   final String? errCode = responseData['error']?.toString();
@@ -38,7 +50,6 @@ class ApiErrorHandler {
                   } else if (errCode == 'MODELS_NOT_LOADED') {
                     return "The wound analysis service is currently unavailable. Please try again in a moment.";
                   } else if (responseData['message'] != null) {
-                    // Ensure we don't expose raw FastAPI nested string just in case
                     final msg = responseData['message'].toString();
                     if (msg.contains('FastAPI error:')) {
                       return _parseNestedFastApiError(msg);
@@ -47,34 +58,32 @@ class ApiErrorHandler {
                   }
                 }
                 if (statusCode == 503) {
-                   return "The analysis service is temporarily unavailable. Please try again later.";
+                   return "The service is temporarily unavailable. Please try again later.";
                 }
                 return "Validation failed. Please check your input.";
               } else if (statusCode == 429) {
                 return "Too many requests. Please try again later.";
               } else if (statusCode != null && statusCode >= 500) {
-                // If it is 500, check if express wrapped a FastAPI error in the message
                 if (responseData is Map<String, dynamic> && responseData['message'] != null) {
                   final msg = responseData['message'].toString();
                   if (msg.contains('FastAPI error:')) {
                      return _parseNestedFastApiError(msg);
                   }
                 }
-                return "The analysis service is temporarily unavailable. Please try again later.";
+                return "The server encountered an error ($statusCode). Please try again later.";
               }
               
-              return "Something went wrong. Please try again.";
+              return "Server returned an error ($statusCode). Please try again.";
             case DioExceptionType.cancel:
               return "The request was cancelled.";
-            case DioExceptionType.badCertificate:
             case DioExceptionType.unknown:
             default:
-              return "Something went wrong. Please try again.";
+              return "An unknown network error occurred. Please try again.";
           }
         }
       } catch (e) {
-        log('Error parsing API error: $e', name: 'ApiErrorHandler');
-        return "Something went wrong. Please try again.";
+        print('Error parsing API error: $e');
+        return "An unexpected error occurred while parsing the response.";
       }
     }
     return "Something went wrong. Please try again.";

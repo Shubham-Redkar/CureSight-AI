@@ -1,21 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, Badge, Button } from '../components/ui';
 import { Plus, Users, ShieldAlert, Activity, CheckCircle, ArrowRight, ClipboardCheck } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 
-interface DashboardProps {
-  setActiveTab: (tab: string) => void;
-  setSelectedPatientId: (id: string | null) => void;
-  setSelectedWoundId: (id: string | null) => void;
-  setSelectedAssessmentId: (id: string | null) => void;
-}
-
-export const Dashboard: React.FC<DashboardProps> = ({
-  setActiveTab,
-  setSelectedPatientId,
-  setSelectedWoundId,
-  setSelectedAssessmentId,
-}) => {
+export const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,13 +43,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
+  const navigate = useNavigate();
+
   const handleAction = (assessment: any) => {
-    if (assessment.wound) {
-      setSelectedPatientId(String(assessment.wound.patientId));
-    }
-    setSelectedWoundId(String(assessment.woundId));
-    setSelectedAssessmentId(String(assessment.id));
-    setActiveTab('assessment');
+    navigate(`/assessments/${assessment.id}`);
   };
 
   if (loading) {
@@ -83,10 +69,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
         <Button
           onClick={() => {
-            setSelectedPatientId(null);
-            setSelectedWoundId(null);
-            setSelectedAssessmentId(null);
-            setActiveTab('assessment');
+            navigate('/assessments/new');
           }}
           className="flex items-center gap-1.5 shrink-0 self-start md:self-center cursor-pointer"
         >
@@ -158,7 +141,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => setActiveTab('patients')}
+              onClick={() => navigate('/patients')}
               className="mt-4 flex items-center gap-1 cursor-pointer"
             >
               Go to Patients
@@ -174,7 +157,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <th className="py-3 px-5">Wound ID</th>
                   <th className="py-3 px-5">Assessment Date</th>
                   <th className="py-3 px-5">Anatomical Location</th>
-                  <th className="py-3 px-5">Healing Status</th>
+                  <th className="py-3 px-5">Wound Status</th>
                   <th className="py-3 px-5">Review Status</th>
                   <th className="py-3 px-5 text-right">Action</th>
                 </tr>

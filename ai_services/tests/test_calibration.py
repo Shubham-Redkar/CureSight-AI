@@ -107,8 +107,9 @@ def test_physical_math():
 @patch('api.services.pipeline.WoundGate.predict')
 @patch('api.services.pipeline.YoloDetector.detect')
 @patch('api.services.pipeline.UNetSegmenter.segment')
+@patch('api.services.pipeline.QualityChecker.check')
 @patch('api.services.pipeline.SegmentationValidator.validate')
-def test_pipeline_e2e_automatic_priority(mock_validate, mock_segment, mock_detect, mock_predict):
+def test_pipeline_e2e_automatic_priority(mock_validate, mock_quality, mock_segment, mock_detect, mock_predict):
     # Test 1 - Automatic Priority over manual input
     mock_predict.return_value = {"is_wound": True, "confidence": 0.99}
     mock_detect.return_value = {
@@ -117,6 +118,7 @@ def test_pipeline_e2e_automatic_priority(mock_validate, mock_segment, mock_detec
     }
     mock_segment.return_value = {"roi_mask": np.ones((90, 90), dtype=np.uint8)}
     mock_validate.return_value = {"valid": True, "message": "OK"}
+    mock_quality.return_value = (True, "OK", {})
     
     path = os.path.join(os.path.dirname(__file__), 'fixtures', 'calibration', 'valid_marker.png')
     
@@ -136,12 +138,14 @@ def test_pipeline_e2e_automatic_priority(mock_validate, mock_segment, mock_detec
     
     assert data.get("physical_measurement_available") is True
 
+@patch('api.services.pipeline.QualityChecker.check')
 @patch('api.services.pipeline.WoundGate.predict')
 @patch('api.services.pipeline.YoloDetector.detect')
 @patch('api.services.pipeline.UNetSegmenter.segment')
 @patch('api.services.pipeline.SegmentationValidator.validate')
-def test_pipeline_e2e_manual_demonstration(mock_validate, mock_segment, mock_detect, mock_predict):
+def test_pipeline_e2e_manual_demonstration(mock_validate, mock_segment, mock_detect, mock_predict, mock_quality):
     # Test 2 - Manual Demonstration (No marker, but manual supplied)
+    mock_quality.return_value = (True, "OK", {})
     mock_predict.return_value = {"is_wound": True, "confidence": 0.99}
     mock_detect.return_value = {
         "detected": True, 
@@ -167,12 +171,14 @@ def test_pipeline_e2e_manual_demonstration(mock_validate, mock_segment, mock_det
     
     assert data.get("physical_measurement_available") is True
 
+@patch('api.services.pipeline.QualityChecker.check')
 @patch('api.services.pipeline.WoundGate.predict')
 @patch('api.services.pipeline.YoloDetector.detect')
 @patch('api.services.pipeline.UNetSegmenter.segment')
 @patch('api.services.pipeline.SegmentationValidator.validate')
-def test_pipeline_e2e_demo_fallback(mock_validate, mock_segment, mock_detect, mock_predict):
+def test_pipeline_e2e_demo_fallback(mock_validate, mock_segment, mock_detect, mock_predict, mock_quality):
     # Test B - Demo fallback (No marker, no manual, demo enabled)
+    mock_quality.return_value = (True, "OK", {})
     mock_predict.return_value = {"is_wound": True, "confidence": 0.99}
     mock_detect.return_value = {
         "detected": True, 
@@ -197,13 +203,15 @@ def test_pipeline_e2e_demo_fallback(mock_validate, mock_segment, mock_detect, mo
     
     assert data.get("physical_measurement_available") is True
 
+@patch('api.services.pipeline.QualityChecker.check')
 @patch('api.services.pipeline.load_config')
 @patch('api.services.pipeline.WoundGate.predict')
 @patch('api.services.pipeline.YoloDetector.detect')
 @patch('api.services.pipeline.UNetSegmenter.segment')
 @patch('api.services.pipeline.SegmentationValidator.validate')
-def test_pipeline_e2e_no_calibration(mock_validate, mock_segment, mock_detect, mock_predict, mock_load_config):
+def test_pipeline_e2e_no_calibration(mock_validate, mock_segment, mock_detect, mock_predict, mock_load_config, mock_quality):
     # Test D - No Calibration (Demo disabled, no marker, no manual value)
+    mock_quality.return_value = (True, "OK", {})
     
     # Mock config to disable demo
     from types import SimpleNamespace
