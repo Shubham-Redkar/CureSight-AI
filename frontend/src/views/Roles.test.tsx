@@ -44,8 +44,11 @@ describe('RBAC for Tissue Analysis', () => {
       user: { id: '1', username: 'test', role: role as any },
       loading: false,
       authenticated: true,
+      backendReachable: true,
+      authError: null,
       login: vi.fn(),
       logout: vi.fn(),
+      checkAuth: vi.fn(),
     });
 
     render(

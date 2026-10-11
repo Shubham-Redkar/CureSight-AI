@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useWounds } from '../context/WoundContext';
 import { useAuth } from '../context/AuthContext';
 import { Card, Button } from '../components/ui';
-import { CheckCircle, FileCheck, RotateCcw, Sparkles } from 'lucide-react';
+import { CheckCircle, FileCheck, RotateCcw, Sparkles, AlertCircle } from 'lucide-react';
 import type { Measurement } from '../types';
+import { apiFetch, buildImageUrl } from '../utils/api';
 
 const formatMeasurement = (value: number | null | undefined, decimals = 2) => {
   if (value === null || value === undefined || isNaN(Number(value))) {
@@ -23,12 +24,26 @@ const formatConfidence = (value: number | null | undefined) => {
 export const AssessmentDetail: React.FC = () => {
   const { assessmentId } = useParams<{ assessmentId: string }>();
   const navigate = useNavigate();
-  const { wounds, patients, assessments, verifyAssessment } = useWounds();
+  const { wounds, patients, assessments, verifyAssessment, loadAssessments } = useWounds();
   const { user } = useAuth();
 
   const activeAssessment = assessments.find(a => a.id === Number(assessmentId));
   const activeWound = wounds.find(w => w.id === activeAssessment?.woundId);
   const activePatient = patients.find(p => p.id === activeWound?.patientId);
+
+  // Auto-load assessment if navigating directly or upon browser refresh
+  useEffect(() => {
+    if (!activeAssessment && assessmentId) {
+      apiFetch(`/api/assessments/${assessmentId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === 'ok' && data.assessment?.woundId) {
+            loadAssessments(data.assessment.woundId);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [assessmentId, activeAssessment, loadAssessments]);
 
   // Active overlays on analyzed image
   const [showYoloBox, setShowYoloBox] = useState(true);
@@ -45,6 +60,40 @@ export const AssessmentDetail: React.FC = () => {
     lengthCm: null,
     widthCm: null,
   });
+
+  const [analyzingTissue, setAnalyzingTissue] = useState(false);
+  const [tissueError, setTissueError] = useState<string | null>(null);
+
+  const handleAnalyzeTissue = async () => {
+    if (!activeAssessment || analyzingTissue) return;
+    setAnalyzingTissue(true);
+    setTissueError(null);
+    try {
+      const formData = new FormData();
+      formData.append('assessmentId', activeAssessment.id.toString());
+      if (activeAssessment.woundId) {
+        formData.append('woundId', activeAssessment.woundId.toString());
+      }
+
+      const res = await apiFetch('/api/analysis/tissue', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const resData = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(resData.message || resData.error || 'Failed to analyze tissue composition.');
+      }
+
+      // Reload assessments to update the state with the persisted tissue analysis
+      await loadAssessments(activeAssessment.woundId);
+      setTissueError(null);
+    } catch (err: any) {
+      setTissueError(err.message || 'An error occurred during tissue analysis.');
+    } finally {
+      setAnalyzingTissue(false);
+    }
+  };
 
   useEffect(() => {
     if (activeAssessment) {
@@ -204,6 +253,24 @@ export const AssessmentDetail: React.FC = () => {
                   </div>
                 </div>
 
+                {/* CALIBRATION STATUS BADGE */}
+                {activeAssessment.aiResult.calibration?.source === 'demo' ? (
+                  <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 flex items-start gap-1.5 leading-snug">
+                    <span className="font-semibold text-amber-600">⚠ Demo Scale ({activeAssessment.aiResult.calibration.pixels_per_cm || 25} px/cm):</span>
+                    <span>Physical calibration marker was not detected. Values shown are demonstration estimates.</span>
+                  </div>
+                ) : activeAssessment.aiResult.calibration?.source === 'manual' ? (
+                  <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 flex items-start gap-1.5 leading-snug">
+                    <span className="font-semibold text-amber-600">⚠ Manual Demonstration Scale:</span>
+                    <span>Scale was entered manually and not derived from a photograph marker.</span>
+                  </div>
+                ) : activeAssessment.aiResult.calibration?.source === 'automatic' ? (
+                  <div className="text-[11px] text-teal-800 bg-teal-50 border border-teal-200 rounded p-2 flex items-center justify-between">
+                    <span className="font-semibold">✓ Automatic Physical Calibration</span>
+                    <span>{activeAssessment.aiResult.calibration.pixels_per_cm} px/cm</span>
+                  </div>
+                ) : null}
+
                 {/* TEXT ANALYSIS */}
                 <div className="text-xs text-slate-655 bg-slate-50/50 border border-slate-200 rounded-md p-3 space-y-2">
                   <div className="font-semibold text-slate-800 flex items-center gap-1.5">
@@ -221,6 +288,59 @@ export const AssessmentDetail: React.FC = () => {
               </div>
             ) : (
               <div className="text-center py-6 text-slate-400 text-xs">AI pipeline analysis is pending.</div>
+            )}
+          </Card>
+
+          {/* TISSUE COMPOSITION PANEL */}
+          <Card title="Tissue Composition">
+            {activeAssessment.aiResult?.tissueComposition ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  {Object.entries(activeAssessment.aiResult.tissueComposition).map(([key, value]) => {
+                    if (Number(value) > 0) {
+                      return (
+                        <div key={key} className="bg-slate-50 border border-slate-100 rounded-md p-2.5 flex justify-between items-center">
+                          <span className="text-xs font-semibold text-slate-700 capitalize">{key}</span>
+                          <span className="text-sm font-bold text-slate-900">{Number(value).toFixed(1)}%</span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
+                {activeAssessment.aiResult.tissueAnnotatedUrl && (
+                  <div className="mt-4">
+                    <div className="text-xs font-semibold text-slate-700 mb-2">Tissue Map</div>
+                    <div className="relative border border-slate-200 rounded-md overflow-hidden flex items-center justify-center bg-slate-100">
+                      <img
+                        src={buildImageUrl(activeAssessment.aiResult.tissueAnnotatedUrl) || activeAssessment.aiResult.tissueAnnotatedUrl}
+                        alt="Tissue Map"
+                        className="max-h-48 object-contain"
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className="text-[10px] text-slate-400 mt-2">
+                  * AI-generated tissue composition estimates are experimental and for investigational use only. Not a clinical diagnosis or treatment recommendation.
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-6">
+                <p className="text-slate-500 text-sm mb-4">No tissue analysis available for this assessment.</p>
+                {tissueError && (
+                  <div className="mb-4 bg-red-50 text-red-700 text-xs p-2 rounded flex items-center justify-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    {tissueError}
+                  </div>
+                )}
+                <Button
+                  onClick={handleAnalyzeTissue}
+                  disabled={analyzingTissue}
+                  className="bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
+                >
+                  {analyzingTissue ? 'Analyzing...' : 'Analyze Tissue'}
+                </Button>
+              </div>
             )}
           </Card>
 

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Badge, Button, Select } from '../components/ui';
 import { TrendingDown, Layers, Clock, TrendingUp, Info } from 'lucide-react';
-import { apiFetch } from '../utils/api';
+import { apiFetch, buildImageUrl } from '../utils/api';
+import { getAreaRaw, calculateAreaChangePct } from '../utils/progressUtils';
 import type { Patient, Wound, Assessment } from '../types';
 
 import { useParams, useNavigate } from 'react-router-dom';
@@ -48,14 +49,6 @@ export const ProgressAnalysis: React.FC = () => {
     return () => { isMounted = false; };
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
-    apiFetch('/api/patients').then(res => res.json()).then(data => {
-      if (isMounted && data.status === 'ok') setPatients(data.patients || []);
-    }).catch(console.error);
-    return () => { isMounted = false; };
-  }, []);
-
 
   useEffect(() => {
     let isMounted = true;
@@ -82,7 +75,7 @@ export const ProgressAnalysis: React.FC = () => {
             }
             return {
                ...assessment,
-               imageUrl: assessment.imageKey ? `/api/images/${assessment.imageKey}` : undefined,
+               imageUrl: buildImageUrl(assessment.imageKey),
                aiResult,
             };
           });
@@ -125,10 +118,7 @@ export const ProgressAnalysis: React.FC = () => {
   }
 
   // Calculate trends
-  const getAreaRaw = (ass?: Assessment): number | null => {
-    if (!ass) return null;
-    return ass.status === 'VERIFIED' || ass.verified ? (ass.verifiedResult?.measurements.areaCm2 ?? null) : (ass.aiResult?.measurements.areaCm2 ?? null);
-  };
+  // getAreaRaw is imported from progressUtils
   const getAreaFormatted = (ass?: Assessment): string => {
     const raw = getAreaRaw(ass);
     return raw !== null ? `${raw.toFixed(2)} cm²` : 'Not available';
@@ -149,11 +139,10 @@ export const ProgressAnalysis: React.FC = () => {
     return 'Unavailable';
   };
 
-  const initialAreaRaw = getAreaRaw(woundAssessments[0]);
-  const currentAreaRaw = getAreaRaw(woundAssessments[woundAssessments.length - 1]);
-  const areaChangePct = (initialAreaRaw !== null && currentAreaRaw !== null && initialAreaRaw > 0) 
-    ? parseFloat((((currentAreaRaw - initialAreaRaw) / initialAreaRaw) * 100).toFixed(1)) 
-    : null;
+  const validCalibratedAssessments = woundAssessments.filter(a => getAreaRaw(a) !== null);
+  const initialAreaRaw = validCalibratedAssessments.length > 0 ? getAreaRaw(validCalibratedAssessments[0]) : null;
+  const currentAreaRaw = validCalibratedAssessments.length > 0 ? getAreaRaw(validCalibratedAssessments[validCalibratedAssessments.length - 1]) : null;
+  const areaChangePct = calculateAreaChangePct(initialAreaRaw, currentAreaRaw);
   
   const overallTrend = areaChangePct === null
     ? 'Insufficient data'
@@ -326,12 +315,12 @@ export const ProgressAnalysis: React.FC = () => {
                   {/* KPI BOXES */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-slate-50 border border-slate-100 rounded-md p-3 text-center">
-                      <div className="text-[10px] text-slate-500 font-semibold uppercase">Initial Area ({new Date(woundAssessments[0].assessmentDate).toLocaleDateString()})</div>
-                      <div className="text-xl font-bold text-slate-900 mt-1">{getAreaFormatted(woundAssessments[0])}</div>
+                      <div className="text-[10px] text-slate-500 font-semibold uppercase">Baseline Area {validCalibratedAssessments.length > 0 ? `(${new Date(validCalibratedAssessments[0].assessmentDate).toLocaleDateString()})` : ''}</div>
+                      <div className="text-xl font-bold text-slate-900 mt-1">{validCalibratedAssessments.length > 0 ? getAreaFormatted(validCalibratedAssessments[0]) : 'Not available'}</div>
                     </div>
                     <div className="bg-slate-50 border border-slate-100 rounded-md p-3 text-center">
-                      <div className="text-[10px] text-slate-500 font-semibold uppercase">Current Area ({new Date(woundAssessments[woundAssessments.length - 1].assessmentDate).toLocaleDateString()})</div>
-                      <div className="text-xl font-bold text-slate-900 mt-1">{getAreaFormatted(woundAssessments[woundAssessments.length - 1])}</div>
+                      <div className="text-[10px] text-slate-500 font-semibold uppercase">Latest Area {validCalibratedAssessments.length > 0 ? `(${new Date(validCalibratedAssessments[validCalibratedAssessments.length - 1].assessmentDate).toLocaleDateString()})` : ''}</div>
+                      <div className="text-xl font-bold text-slate-900 mt-1">{validCalibratedAssessments.length > 0 ? getAreaFormatted(validCalibratedAssessments[validCalibratedAssessments.length - 1]) : 'Not available'}</div>
                     </div>
                   </div>
 
@@ -368,15 +357,15 @@ export const ProgressAnalysis: React.FC = () => {
                   <div className="bg-teal-50/40 border border-teal-100 rounded-lg p-3.5 text-xs text-slate-655 flex gap-2">
                     <Info className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
                     <div>
-                      Across a span of <strong>{woundAssessments.length} assessments</strong> dating from {new Date(woundAssessments[0].assessmentDate).toLocaleDateString()} to {new Date(woundAssessments[woundAssessments.length - 1].assessmentDate).toLocaleDateString()}, this {activeWound.description || 'wound'} site has shown a total area reduction of {initialAreaRaw !== null && currentAreaRaw !== null ? Math.abs(initialAreaRaw - currentAreaRaw).toFixed(2) : 'Not available'} cm² ({areaChangePct !== null ? Math.abs(areaChangePct) : 'Not available'}%). The wound margins are currently classified as <strong>{overallTrend.toLowerCase()}</strong>.
+                      Across a span of <strong>{woundAssessments.length} assessments</strong> (with {validCalibratedAssessments.length} calibrated for area comparison), this {activeWound.description || 'wound'} site has shown a total calibrated area change of {initialAreaRaw !== null && currentAreaRaw !== null ? Math.abs(initialAreaRaw - currentAreaRaw).toFixed(2) : 'Not available'} cm² ({areaChangePct !== null ? Math.abs(areaChangePct) : 'Not available'}%). The wound margins are currently classified as <strong>{overallTrend.toLowerCase()}</strong>.
                     </div>
                   </div>
                 </div>
               </Card>
             </div>
 
-            {/* PROGRESS CHART (7 cols) */}
-            <div className="lg:col-span-7">
+          {/* PROGRESS CHART (7 cols) */}
+            <div className="lg:col-span-7 space-y-6">
               <Card title="Wound Area Over Time (Longitudinal Progression)">
                 <div className="h-44 flex items-center justify-center pt-2">
                   {renderAreaChart()}
@@ -384,6 +373,57 @@ export const ProgressAnalysis: React.FC = () => {
                 <div className="flex justify-between items-center text-3xs text-slate-400 border-t border-slate-100 mt-3 pt-2 font-medium">
                   <span>Y-Axis: Square Centimeters (cm²)</span>
                   <span>X-Axis: Assessment Dates</span>
+                </div>
+              </Card>
+
+              <Card title="Tissue Composition Trends">
+                <div className="space-y-4 pt-2">
+                  {(() => {
+                    const tissueAssessments = woundAssessments.filter(a => a.aiResult?.tissueComposition);
+                    if (tissueAssessments.length === 0) {
+                      return <div className="text-center py-6 text-slate-400 text-xs">No tissue composition data available for historical comparison.</div>;
+                    }
+                    return tissueAssessments.map(a => {
+                      const comp = a.aiResult!.tissueComposition;
+                      return (
+                        <div key={a.id} className="text-xs">
+                          <div className="flex justify-between font-semibold mb-1 text-slate-700">
+                            <span>{new Date(a.assessmentDate).toLocaleDateString()}</span>
+                          </div>
+                          <div className="flex h-4 rounded overflow-hidden">
+                            {Object.entries(comp).map(([key, value]) => {
+                              const val = Number(value);
+                              if (val <= 0) return null;
+                              let color = 'bg-slate-300';
+                              if (key.toLowerCase().includes('granulation')) color = 'bg-rose-500';
+                              if (key.toLowerCase().includes('slough')) color = 'bg-yellow-400';
+                              if (key.toLowerCase().includes('eschar') || key.toLowerCase().includes('necrotic')) color = 'bg-slate-800';
+                              if (key.toLowerCase().includes('epithelial')) color = 'bg-pink-300';
+
+                              return (
+                                <div
+                                  key={key}
+                                  className={`${color} h-full flex items-center justify-center text-[8px] text-white font-bold whitespace-nowrap overflow-hidden`}
+                                  style={{ width: `${val}%` }}
+                                  title={`${key}: ${val.toFixed(1)}%`}
+                                >
+                                  {val > 10 ? `${val.toFixed(0)}%` : ''}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="flex gap-3 mt-1.5 text-[9px] text-slate-500 flex-wrap">
+                            {Object.entries(comp).filter(([_, v]) => Number(v) > 0).map(([k, v]) => (
+                              <span key={k} className="capitalize">{k}: {Number(v).toFixed(1)}%</span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                  <div className="text-[10px] text-slate-400 mt-2 border-t border-slate-100 pt-2">
+                    * AI-generated tissue estimates. Not a clinical diagnosis. Compare percentages only when class definitions are compatible.
+                  </div>
                 </div>
               </Card>
             </div>

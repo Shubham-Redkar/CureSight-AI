@@ -83,12 +83,17 @@ def process_wound_image(
     wounds_list = []
     total_area = None
     total_perimeter = None
+    total_area_pixels = None
+    total_perimeter_pixels = None
     
     # Global measurements
     meas = result.get("measurements", {})
-    if meas and meas.get("physical"):
-        total_area = meas["physical"].get("area_cm2")
-        total_perimeter = meas["physical"].get("perimeter_cm")
+    if meas:
+        total_area_pixels = meas.get("area_pixels")
+        total_perimeter_pixels = meas.get("perimeter_pixels")
+        if meas.get("physical"):
+            total_area = meas["physical"].get("area_cm2")
+            total_perimeter = meas["physical"].get("perimeter_cm")
         
     roi_measurements = result.get("roi_measurements", [])
     
@@ -125,6 +130,10 @@ def process_wound_image(
         w = PerWoundResponse(
             wound_id=i + 1,
             detection_confidence=roi_meas.get("confidence"),
+            area_pixels=roi_meas.get("area_pixels"),
+            perimeter_pixels=roi_meas.get("perimeter_pixels"),
+            width_pixels=roi_meas.get("width_pixels"),
+            height_pixels=roi_meas.get("height_pixels"),
             area_cm2=phys.get("area_cm2"),
             perimeter_cm=phys.get("perimeter_cm"),
             length_cm=phys.get("height_cm"),
@@ -144,6 +153,8 @@ def process_wound_image(
         wound_detected=len(wounds_list) > 0,
         detection_confidence=None,
         wound_count=len(wounds_list),
+        total_area_pixels=total_area_pixels,
+        total_perimeter_pixels=total_perimeter_pixels,
         total_area_cm2=total_area,
         total_perimeter_cm=total_perimeter,
         wounds=wounds_list,

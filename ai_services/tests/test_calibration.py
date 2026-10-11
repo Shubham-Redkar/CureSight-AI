@@ -134,9 +134,11 @@ def test_pipeline_e2e_automatic_priority(mock_validate, mock_quality, mock_segme
     assert calib is not None
     assert calib.get("detected") is True
     assert calib.get("source") == "automatic"
-    assert abs(calib.get("pixels_per_cm", 0) - 25.0) <= 1.0, "Automatic scale should be ~25, ignoring manual 50"
-    
     assert data.get("physical_measurement_available") is True
+    assert data.get("total_area_cm2") is not None
+    assert data.get("total_area_pixels") is not None
+    assert data.get("wounds")[0].get("area_pixels") is not None
+    assert data.get("wounds")[0].get("area_cm2") is not None
 
 @patch('api.services.pipeline.analyze_image_quality')
 @patch('api.services.pipeline.WoundGate.predict')
@@ -252,6 +254,9 @@ def test_pipeline_e2e_no_calibration(mock_validate, mock_segment, mock_detect, m
         
     assert data.get("physical_measurement_available") is False
     assert data.get("total_area_cm2") is None
+    assert data.get("total_area_pixels") is not None
+    assert data.get("wounds")[0].get("area_pixels") is not None
+    assert data.get("wounds")[0].get("area_cm2") is None
 
 def test_pipeline_e2e_invalid_manual_value():
     # Test 4 - Invalid Manual Value

@@ -72,6 +72,10 @@ runs/
 wandb/
 mlruns/
 tensorboard/
+ml/models/
+ml/data/
+ml/healing/data/
+ml/training/logs/
 
 
 # ============================================================

@@ -13,8 +13,11 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   authenticated: boolean;
+  backendReachable: boolean;
+  authError: string | null;
   login: (user: User) => void;
   logout: () => Promise<void>;
+  checkAuth: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -22,21 +25,39 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [backendReachable, setBackendReachable] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const checkAuth = async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+
     try {
-      const res = await apiFetch('/api/auth/me');
+      const res = await apiFetch('/api/auth/me', { signal: controller.signal });
+      clearTimeout(timeoutId);
+      setBackendReachable(true);
+      setAuthError(null);
+
       if (res.ok) {
         const data = await res.json();
         if (data.authenticated && data.user) {
           setUser(data.user);
+        } else {
+          setUser(null);
         }
       } else {
         setUser(null);
       }
-    } catch (err) {
-      console.error("Auth check failed:", err);
+    } catch (err: any) {
+      clearTimeout(timeoutId);
       setUser(null);
+      setBackendReachable(false);
+      const isTimeout = err?.name === 'AbortError';
+      const msg = isTimeout
+        ? 'Session verification timed out. Backend server may be offline or slow.'
+        : (err?.message || 'Unable to connect to backend server.');
+      setAuthError(msg);
+      console.warn("Auth check failed:", msg);
     } finally {
       setLoading(false);
     }
@@ -58,11 +79,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = (newUser: User) => {
     setUser(newUser);
+    setBackendReachable(true);
+    setAuthError(null);
   };
 
   const logout = async () => {
     try {
-      await apiFetch('/api/auth/logout', { method: 'POST' });
+      await apiFetch('/api/auth/logout', { method: 'POST', timeoutMs: 5000 });
     } catch (e) {
       console.error("Logout error", e);
     }
@@ -75,8 +98,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         loading,
         authenticated: !!user,
+        backendReachable,
+        authError,
         login,
         logout,
+        checkAuth,
       }}
     >
       {children}

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { apiFetch } from '../utils/api';
+import { apiFetch, getApiBaseUrl } from '../utils/api';
 import { Button } from '../components/ui';
 import { 
   Lock, 
@@ -16,12 +17,16 @@ import {
 } from 'lucide-react';
 
 export const Login: React.FC = () => {
-  const { login } = useAuth();
+  const { login, authenticated, backendReachable, authError } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  if (authenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,17 +38,36 @@ export const Login: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
+        timeoutMs: 10000,
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (res.ok && data.user) {
         login(data.user);
+      } else if (res.status === 401) {
+        setError('Invalid username or password.');
+      } else if (res.status === 400) {
+        setError(data.message || 'Please provide both username and password.');
+      } else if (res.status === 403) {
+        setError(data.message || 'Access denied. You do not have permission to access this clinical workspace.');
+      } else if (res.status === 404) {
+        setError(data.message ? `Authentication endpoint not found (HTTP 404): ${data.message}` : `Authentication endpoint not found (HTTP 404). Please verify backend is running at ${getApiBaseUrl()}.`);
+      } else if (res.status === 429) {
+        setError(data.message || 'Too many login attempts. Please wait a few minutes before trying again.');
+      } else if (res.status >= 500) {
+        setError(data.message || `Server error (HTTP ${res.status}). Please try again later or contact support.`);
       } else {
-        setError('Unable to sign in. Please check your username and password and try again.');
+        setError(data.message || `Unable to sign in. Server returned HTTP ${res.status}.`);
       }
-    } catch (err) {
-      setError('Unable to sign in. Network error. Please try again later.');
+    } catch (err: any) {
+      console.error('Login error:', err);
+      const isTimeout = err?.name === 'AbortError';
+      setError(
+        isTimeout
+          ? `Login request timed out after 10s. Please ensure the backend is running at ${getApiBaseUrl()}.`
+          : `Unable to sign in. Network error connecting to ${getApiBaseUrl()}. Please verify your backend server is running.`
+      );
     } finally {
       setLoading(false);
     }
@@ -154,6 +178,18 @@ export const Login: React.FC = () => {
             </div>
 
             <form className="space-y-5" onSubmit={handleSubmit}>
+              {!backendReachable && authError && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3.5 rounded-lg flex items-start gap-3 text-xs font-medium">
+                  <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-amber-600" />
+                  <div>
+                    <span className="font-bold">Backend Offline or Slow:</span> {authError}
+                    <div className="text-[11px] text-amber-700 mt-1">
+                      API Target: <code className="bg-amber-100/80 px-1 py-0.5 rounded font-mono">{getApiBaseUrl()}</code>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {error && (
                 <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3.5 rounded-lg flex items-start gap-3 text-sm font-medium">
                   <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />

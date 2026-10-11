@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui';
 import { ChevronLeft, Download, AlertCircle } from 'lucide-react';
-import { apiFetch } from '../utils/api';
+import { apiFetch, buildImageUrl } from '../utils/api';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { PdfReportTemplate } from '../components/PdfReportTemplate';
@@ -16,7 +16,6 @@ export const ReportDetail: React.FC = () => {
   const [reportError, setReportError] = useState<string | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
   useEffect(() => {
     let isMounted = true;
@@ -207,7 +206,7 @@ export const ReportDetail: React.FC = () => {
                 </div>
                 <div className="h-40 flex items-center justify-center bg-slate-950 rounded">
                   {activeReportData.images.originalUrl ? (
-                    <img src={`${API_URL}${activeReportData.images.originalUrl}`} alt="Original Wound" className="h-full w-auto object-contain" />
+                    <img src={buildImageUrl(activeReportData.images.originalUrl)} alt="Original Wound" className="h-full w-auto object-contain" />
                   ) : (
                     <div className="text-slate-400">Original image unavailable</div>
                   )}
@@ -221,7 +220,7 @@ export const ReportDetail: React.FC = () => {
                 </div>
                 <div className="h-40 flex items-center justify-center bg-slate-950 rounded">
                   {activeReportData.images.annotatedUrl ? (
-                    <img src={`${API_URL}${activeReportData.images.annotatedUrl}`} alt="Annotated Wound" className="h-full w-auto object-contain" />
+                    <img src={buildImageUrl(activeReportData.images.annotatedUrl)} alt="Annotated Wound" className="h-full w-auto object-contain" />
                   ) : (
                     <div className="text-slate-400">Annotated image unavailable</div>
                   )}

@@ -52,6 +52,8 @@ export interface Assessment {
     detectionConfidence: number | null;
     measurements: Measurement;
     tissueAnalysis: string; // Textual description
+    tissueComposition?: any;
+    tissueAnnotatedUrl?: string | null;
     calibration?: any;
   };
 

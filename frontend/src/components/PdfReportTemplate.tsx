@@ -1,4 +1,5 @@
 import React from 'react';
+import { buildImageUrl } from '../utils/api';
 
 interface PdfReportTemplateProps {
   reportData: any;
@@ -7,7 +8,6 @@ interface PdfReportTemplateProps {
 export const PdfReportTemplate: React.FC<PdfReportTemplateProps> = ({ reportData }) => {
   if (!reportData) return null;
 
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
   const {
     patient,
@@ -217,7 +217,7 @@ export const PdfReportTemplate: React.FC<PdfReportTemplateProps> = ({ reportData
               <div className="font-semibold mb-2" style={{ color: '#1e293b' }}>Original Wound Image</div>
               <div className="h-48 flex items-center justify-center rounded" style={{ backgroundColor: '#f1f5f9' }}>
                 {images?.originalUrl ? (
-                  <img src={`${API_URL}${images.originalUrl}`} crossOrigin="anonymous" alt="Original" className="max-h-full max-w-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
+                  <img src={buildImageUrl(images.originalUrl)} crossOrigin="anonymous" alt="Original" className="max-h-full max-w-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
                 ) : (
                   <span className="italic" style={{ color: '#94a3b8' }}>Image not available</span>
                 )}
@@ -228,7 +228,7 @@ export const PdfReportTemplate: React.FC<PdfReportTemplateProps> = ({ reportData
               <div className="font-semibold mb-2" style={{ color: '#1e293b' }}>AI Analysis / Segmentation</div>
               <div className="h-48 flex items-center justify-center rounded" style={{ backgroundColor: '#f1f5f9' }}>
                 {images?.annotatedUrl ? (
-                  <img src={`${API_URL}${images.annotatedUrl}`} crossOrigin="anonymous" alt="Annotated" className="max-h-full max-w-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
+                  <img src={buildImageUrl(images.annotatedUrl)} crossOrigin="anonymous" alt="Annotated" className="max-h-full max-w-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
                 ) : (
                   <span className="italic" style={{ color: '#94a3b8' }}>Image not available</span>
                 )}
