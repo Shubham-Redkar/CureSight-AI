@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../../assessments/providers/assessment_provider.dart';
 import '../../assessments/models/assessment_model.dart';
+import '../utils/progress_utils.dart';
 
 class ProgressScreen extends ConsumerWidget {
   final int woundId;
@@ -75,15 +76,12 @@ class ProgressScreen extends ConsumerWidget {
     // 2. Extract plottable points
     final chartPoints = <FlSpot>[];
     for (final a in validAssessments) {
-      final effectiveWoundDetected = _getEffectiveWoundDetected(a);
-      if (effectiveWoundDetected == true && a.measurements != null) {
-        final area = a.measurements!['total_area_cm2'];
-        if (area != null && area is num && area >= 0) {
-          chartPoints.add(FlSpot(
-            a.assessmentDate.millisecondsSinceEpoch.toDouble(),
-            area.toDouble(),
-          ));
-        }
+      final area = ProgressUtils.getAreaRaw(a);
+      if (area != null) {
+        chartPoints.add(FlSpot(
+          a.assessmentDate.millisecondsSinceEpoch.toDouble(),
+          area.toDouble(),
+        ));
       }
     }
 
@@ -137,6 +135,18 @@ class ProgressScreen extends ConsumerWidget {
           child: Padding(
             padding: EdgeInsets.fromLTRB(16, 24, 16, 12),
             child: Text(
+              'Tissue Composition Trends',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: _buildTissueCompositionTrends(validAssessments),
+        ),
+        const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(16, 24, 16, 12),
+            child: Text(
               'Historical Ledger',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
             ),
@@ -165,11 +175,10 @@ class ProgressScreen extends ConsumerWidget {
 
     final baselineArea = firstPoint.y;
     final latestArea = lastPoint.y;
-    final absoluteChange = latestArea - baselineArea;
+    final percentageChange = ProgressUtils.calculateAreaChangePct(baselineArea, latestArea);
     String percentageChangeStr = 'Unavailable';
 
-    if (baselineArea > 0) {
-      final percentageChange = (absoluteChange / baselineArea) * 100;
+    if (percentageChange != null) {
       final sign = percentageChange > 0 ? '+' : '';
       percentageChangeStr = '$sign${percentageChange.toStringAsFixed(1)}%';
     }
@@ -304,6 +313,114 @@ class ProgressScreen extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildTissueCompositionTrends(List<AssessmentModel> assessments) {
+    final tissueAssessments = assessments.where((a) => a.measurements != null && a.measurements!['tissue_composition'] != null).toList();
+
+    if (tissueAssessments.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 16.0),
+        child: Card(
+          color: Colors.white,
+          elevation: 0,
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Text(
+              'No tissue composition data available for historical comparison.',
+              style: TextStyle(color: Colors.black54, fontSize: 14),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Colors.grey.shade200),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ...tissueAssessments.map((a) {
+                final comp = a.measurements!['tissue_composition'] as Map<String, dynamic>;
+                final date = DateFormat('MMM d, yyyy').format(a.assessmentDate.toLocal());
+
+                final validComp = comp.entries.where((e) => (e.value as num) > 0).toList();
+                if (validComp.isEmpty) return const SizedBox.shrink();
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(date, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: validComp.map((e) {
+                          final val = (e.value as num).toDouble();
+                          final name = e.key.toLowerCase();
+                          Color color = Colors.grey.shade300;
+                          if (name.contains('granulation')) {
+                            color = Colors.pink.shade400;
+                          } else if (name.contains('slough')) {
+                            color = Colors.yellow.shade700;
+                          } else if (name.contains('eschar') || name.contains('necrotic')) {
+                            color = Colors.black87;
+                          } else if (name.contains('epithelial')) {
+                            color = Colors.pink.shade100;
+                          }
+
+                          return Expanded(
+                            flex: (val * 10).round(),
+                            child: Container(
+                              height: 16,
+                              decoration: BoxDecoration(
+                                color: color,
+                                borderRadius: validComp.length == 1
+                                  ? BorderRadius.circular(4)
+                                  : (e == validComp.first
+                                      ? const BorderRadius.horizontal(left: Radius.circular(4))
+                                      : (e == validComp.last
+                                          ? const BorderRadius.horizontal(right: Radius.circular(4))
+                                          : BorderRadius.zero)),
+                              ),
+                              child: val > 15
+                                ? Center(child: Text('${val.toStringAsFixed(0)}%', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)))
+                                : null,
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 8,
+                        children: validComp.map((e) {
+                          final val = (e.value as num).toDouble();
+                          return Text('${e.key[0].toUpperCase()}${e.key.substring(1)}: ${val.toStringAsFixed(1)}%', style: const TextStyle(fontSize: 10, color: Colors.black54));
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+              const Divider(),
+              const Text(
+                '* AI-generated tissue estimates. Not a clinical diagnosis. Compare percentages only when class definitions are compatible.',
+                style: TextStyle(fontSize: 10, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

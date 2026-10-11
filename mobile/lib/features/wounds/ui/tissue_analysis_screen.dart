@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../../core/config/env_config.dart';
 import 'package:image_picker/image_picker.dart';
