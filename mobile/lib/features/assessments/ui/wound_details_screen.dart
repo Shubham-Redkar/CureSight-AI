@@ -24,7 +24,7 @@ class WoundDetailsScreen extends ConsumerWidget {
         children: [
           FloatingActionButton.extended(
             heroTag: 'analyze_tissue',
-            onPressed: () => context.push('/wounds/${wound.id}/tissue', extra: wound),
+            onPressed: () => context.push('/wounds/${wound.id}/tissue', extra: {'wound': wound}),
             icon: const Icon(Icons.biotech),
             label: const Text('Analyze Tissue'),
             backgroundColor: Colors.blue.shade700,
@@ -50,6 +50,18 @@ class WoundDetailsScreen extends ConsumerWidget {
               child: Padding(
                 padding: EdgeInsets.fromLTRB(16, 24, 16, 16),
                 child: Text(
+                  'Tissue Analysis',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: _buildTissueCard(context, state),
+            ),
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(16, 24, 16, 16),
+                child: Text(
                   'Assessments',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                 ),
@@ -59,6 +71,84 @@ class WoundDetailsScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildTissueCard(BuildContext context, AsyncValue<List<AssessmentModel>> state) {
+    return state.when(
+      data: (assessments) {
+        final tissueAssessments = assessments.where((a) => a.notes == 'Tissue Analysis' || (a.measurements?['tissue_composition'] != null)).toList();
+        if (tissueAssessments.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 32.0, horizontal: 16.0),
+                child: Column(
+                  children: [
+                    const Text('No tissue analysis available.', style: TextStyle(color: Colors.black54)),
+                    const SizedBox(height: 16),
+                    OutlinedButton(
+                      onPressed: () => context.push('/wounds/${wound.id}/tissue', extra: {'wound': wound}),
+                      child: const Text('Analyze Tissue'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        final latest = tissueAssessments.first;
+        final date = latest.assessmentDate.toLocal();
+        final dateString = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          child: Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.blue.shade200)),
+            child: InkWell(
+              onTap: () => context.push('/wounds/${wound.id}/tissue', extra: {'wound': wound, 'assessment': latest}),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: Colors.blue.shade50,
+                      child: Icon(Icons.biotech, color: Colors.blue.shade700),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Tissue Analysis', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          const SizedBox(height: 4),
+                          Text('Latest: $dateString', style: TextStyle(color: Colors.grey.shade700, fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => context.push('/wounds/${wound.id}/tissue', extra: {'wound': wound, 'assessment': latest}),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue.shade50,
+                        foregroundColor: Colors.blue.shade700,
+                        elevation: 0,
+                      ),
+                      child: const Text('View'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 

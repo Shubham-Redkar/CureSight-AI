@@ -5,17 +5,20 @@ import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 import * as argon2 from "argon2";
 import crypto from "crypto";
+import rateLimit from "express-rate-limit";
+import pg from "pg";
 
 import { PrismaClient, UserRole } from "../generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import { supabase } from "./supabase";
 import upload from "./upload";
+import multer from "multer";
 
 const app = express();
 
 const isProduction = process.env.NODE_ENV === "production";
-const frontendUrl = process.env.FRONTEND_URL;
+const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/\/$/, '') : undefined;
 
 app.use(cors({
   origin: isProduction && frontendUrl ? frontendUrl : true,
@@ -24,9 +27,60 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
-const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL!,
+app.set('trust proxy', 1);
+
+// Safe Structured Request Tracing Middleware
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const reqId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
+  (req as any).id = reqId;
+  res.setHeader("X-Request-Id", reqId);
+  const start = performance.now();
+
+  res.on("finish", () => {
+    const duration = performance.now() - start;
+    // Structured log: safe fields only, no passwords/tokens/cookies or patient data
+    console.log(JSON.stringify({
+      type: "REQUEST_LOG",
+      requestId: reqId,
+      method: req.method,
+      path: req.baseUrl + req.path,
+      status: res.statusCode,
+      durationMs: Number(duration.toFixed(2)),
+      timestamp: new Date().toISOString(),
+    }));
+  });
+
+  next();
 });
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "TOO_MANY_REQUESTS", message: "Too many login attempts, please try again later." },
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  message: { error: "TOO_MANY_REQUESTS", message: "Upload limit exceeded, please try again later." },
+});
+
+const tissueLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  message: { error: "TOO_MANY_REQUESTS", message: "Tissue analysis limit exceeded, please try again later." },
+});
+
+// Resilient connection pooling with Neon pooler fallback
+const dbConnectionString = process.env.DATABASE_URL_POOLED || process.env.DATABASE_URL!;
+const dbPool = new pg.Pool({
+  connectionString: dbConnectionString,
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 30000,
+});
+
+const adapter = new PrismaPg(dbPool);
 
 const prisma = new PrismaClient({
   adapter,
@@ -63,7 +117,10 @@ app.get("/api/db-test", async (req, res) => {
 
 // Authentication Middleware
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
-  const token = req.cookies.token;
+  let token = req.cookies.token;
+  if (!token && req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
+    token = req.headers.authorization.substring(7);
+  }
   if (!token) {
     return res.status(401).json({ error: "UNAUTHORIZED", message: "Authentication required" });
   }
@@ -88,19 +145,34 @@ export const requireRoles = (roles: UserRole[]) => {
 };
 
 // Auth Endpoints
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", loginLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: "INVALID_INPUT", message: "Username and password required" });
     }
 
+    const tDbStart = performance.now();
     const user = await prisma.user.findUnique({ where: { username } });
+    const dbDuration = performance.now() - tDbStart;
+
     if (!user) {
       return res.status(401).json({ error: "UNAUTHORIZED", message: "Invalid username or password" });
     }
 
+    const tArgonStart = performance.now();
     const valid = await argon2.verify(user.passwordHash, password);
+    const argonDuration = performance.now() - tArgonStart;
+
+    console.log(JSON.stringify({
+      type: "STAGE_TIMING",
+      requestId: (req as any).id,
+      stage: "login",
+      dbQueryMs: Number(dbDuration.toFixed(2)),
+      passwordVerifyMs: Number(argonDuration.toFixed(2)),
+      success: valid,
+    }));
+
     if (!valid) {
       return res.status(401).json({ error: "UNAUTHORIZED", message: "Invalid username or password" });
     }
@@ -288,38 +360,34 @@ app.post("/api/wounds", async (req, res) => {
 app.get("/api/wounds", async (req, res) => {
   try {
     const { patientId } = req.query;
+    let whereClause: any = {};
     
-    if (!patientId) {
-      return res.status(400).json({
-        status: "error",
-        error: "INVALID_INPUT",
-        message: "patientId query parameter is required."
-      });
-    }
+    if (patientId) {
+      const numericPatientId = Number(patientId);
+      if (isNaN(numericPatientId)) {
+        return res.status(400).json({
+          status: "error",
+          error: "INVALID_INPUT",
+          message: "patientId must be a valid number."
+        });
+      }
 
-    const numericPatientId = Number(patientId);
-    if (isNaN(numericPatientId)) {
-      return res.status(400).json({
-        status: "error",
-        error: "INVALID_INPUT",
-        message: "patientId must be a valid number."
+      const patient = await prisma.patient.findUnique({
+        where: { id: numericPatientId }
       });
-    }
 
-    const patient = await prisma.patient.findUnique({
-      where: { id: numericPatientId }
-    });
-
-    if (!patient) {
-      return res.status(404).json({
-        status: "error",
-        error: "PATIENT_NOT_FOUND",
-        message: "The referenced patient does not exist in the database."
-      });
+      if (!patient) {
+        return res.status(404).json({
+          status: "error",
+          error: "PATIENT_NOT_FOUND",
+          message: "The referenced patient does not exist in the database."
+        });
+      }
+      whereClause = { patientId: patient.id };
     }
 
     const wounds = await prisma.wound.findMany({
-      where: { patientId: patient.id },
+      where: whereClause,
       orderBy: { createdAt: 'desc' }
     });
 
@@ -381,6 +449,43 @@ app.get("/api/assessments", async (req, res) => {
       status: "error",
       error: "INTERNAL_ERROR",
       message: "Failed to fetch assessments",
+    });
+  }
+});
+
+app.get("/api/assessments/:id", async (req, res) => {
+  try {
+    const assessmentId = Number(req.params.id);
+    if (isNaN(assessmentId)) {
+      return res.status(400).json({
+        status: "error",
+        error: "INVALID_ASSESSMENT_ID",
+        message: "Assessment ID must be a number."
+      });
+    }
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId }
+    });
+
+    if (!assessment) {
+      return res.status(404).json({
+        status: "error",
+        error: "ASSESSMENT_NOT_FOUND",
+        message: "The referenced assessment does not exist."
+      });
+    }
+
+    res.json({
+      status: "ok",
+      assessment
+    });
+  } catch (error) {
+    console.error("Assessment fetch error:", error);
+    res.status(500).json({
+      status: "error",
+      error: "INTERNAL_ERROR",
+      message: "Failed to fetch assessment",
     });
   }
 });
@@ -503,11 +608,18 @@ app.get("/api/reports/:assessmentId", async (req, res) => {
       }
     }
 
-    // Extract the current assessment's area from its persisted measurements
+    // Extract the current assessment's area from its persisted measurements, giving precedence to clinician overrides
     const currentMeasurements = assessment.measurements as any;
     let currentArea: number | null = null;
     if (effectiveWoundDetected === true) {
-      currentArea = currentMeasurements?.total_area_cm2 ?? null;
+      const vResult = assessment.verifiedResult as any;
+      if (assessment.verified && vResult?.measurements?.total_area_cm2 != null) {
+        currentArea = vResult.measurements.total_area_cm2;
+      } else if (assessment.verified && vResult?.measurements?.areaCm2 != null) {
+        currentArea = vResult.measurements.areaCm2;
+      } else {
+        currentArea = currentMeasurements?.total_area_cm2 ?? null;
+      }
     }
 
     // Determine previous valid assessment (chronologically preceding with a valid area)
@@ -525,18 +637,23 @@ app.get("/api/reports/:assessmentId", async (req, res) => {
       for (let i = currentIndex - 1; i >= 0; i--) {
         const prev = allWoundAssessments[i];
         const prevMeas = prev.measurements as any;
-        const prevArea = prevMeas?.total_area_cm2;
-        let effectiveWoundDetected = prev.woundDetected;
+        let prevArea = prevMeas?.total_area_cm2;
+        let prevEffectiveWoundDetected = prev.woundDetected;
         if (prev.verified === true && prev.verifiedResult != null) {
           const vResult = prev.verifiedResult as any;
           if (typeof vResult.woundDetected === "boolean") {
-            effectiveWoundDetected = vResult.woundDetected;
+            prevEffectiveWoundDetected = vResult.woundDetected;
+          }
+          if (vResult?.measurements?.total_area_cm2 != null) {
+            prevArea = vResult.measurements.total_area_cm2;
+          } else if (vResult?.measurements?.areaCm2 != null) {
+            prevArea = vResult.measurements.areaCm2;
           }
         }
 
         if (
           ["COMPLETED", "VERIFIED"].includes(prev.status) &&
-          effectiveWoundDetected === true &&
+          prevEffectiveWoundDetected === true &&
           prevArea != null &&
           typeof prevArea === "number"
         ) {
@@ -730,7 +847,7 @@ app.get(/^\/api\/images\/(.+)$/, async (req, res) => {
 });
 
 // Image upload
-app.post("/api/upload", upload.single("image"), async (req, res) => {
+app.post("/api/upload", uploadLimiter, upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -803,10 +920,15 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
     let createdAssessment = null;
 
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+
         const aiResponse = await fetch(`${FASTAPI_URL}/api/v1/analyze-wound-upload/`, {
             method: "POST",
             body: formData,
+            signal: controller.signal as RequestInit["signal"],
         });
+        clearTimeout(timeoutId);
         
         if (!aiResponse.ok) {
             const errorText = await aiResponse.text();
@@ -898,12 +1020,16 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
 
     } catch (error: any) {
         console.error("[UPLOAD] AI Analysis Error Stage:", error);
-        aiError = error instanceof Error ? error.message : String(error);
+        const isConnErr = error?.message?.includes("fetch failed") || error?.code === "ECONNREFUSED" || error?.name === "TypeError";
+        aiError = isConnErr
+          ? `AI inference service is unreachable at ${FASTAPI_URL}. Please ensure the FastAPI AI service is running.`
+          : (error instanceof Error ? error.message : String(error));
         
         return res.status(error.message?.includes('too large') ? 413 : 500).json({
           status: "error",
           error: "AI_ANALYSIS_FAILED",
-          message: aiError
+          message: aiError,
+          requestId: (req as any).id
         });
     }
 
@@ -931,31 +1057,116 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
 });
 
 // Tissue Analysis Upload
-app.post("/api/analysis/tissue", requireAuth, requireRoles(["DOCTOR", "ADMIN"]), upload.single("image"), async (req, res) => {
+app.post("/api/analysis/tissue", requireAuth, requireRoles(["DOCTOR", "ADMIN"]), tissueLimiter, upload.single("image"), async (req, res) => {
   try {
-    if (!req.file) {
+    let imageBuffer: Buffer;
+    let originalName: string;
+    let mimeType: string;
+    let existingAssessment = null;
+    const bucket = process.env.SUPABASE_STORAGE_BUCKET || "wound-images";
+
+    const timings: Record<string, number> = {};
+
+    let woundId: number | null = null;
+    if (req.body?.woundId !== undefined && req.body?.woundId !== null && req.body?.woundId !== "") {
+      const parsed = Number(req.body.woundId);
+      if (isNaN(parsed)) {
+        return res.status(400).json({ status: "error", error: "INVALID_WOUND_ID", message: "Invalid wound ID" });
+      }
+      woundId = parsed;
+    }
+
+    if (req.body?.assessmentId) {
+      const assessmentId = Number(req.body.assessmentId);
+      if (isNaN(assessmentId)) {
+        return res.status(400).json({
+          status: "error",
+          error: "INVALID_ASSESSMENT_ID",
+          message: "A valid numeric assessment ID is required."
+        });
+      }
+
+      const tDbStart = performance.now();
+      existingAssessment = await prisma.assessment.findUnique({ where: { id: assessmentId } });
+      timings.dbFetchMs = Number((performance.now() - tDbStart).toFixed(2));
+
+      if (!existingAssessment || !existingAssessment.imageKey) {
+        return res.status(404).json({
+          status: "error",
+          error: "IMAGE_NOT_FOUND",
+          message: "Assessment or original source image not found."
+        });
+      }
+
+      const tStorageStart = performance.now();
+      const { data, error } = await supabase.storage.from(bucket).download(existingAssessment.imageKey);
+      timings.storageDownloadMs = Number((performance.now() - tStorageStart).toFixed(2));
+
+      if (error || !data) {
+        return res.status(404).json({
+          status: "error",
+          error: "STORAGE_DOWNLOAD_FAILED",
+          message: "Could not retrieve original image from storage."
+        });
+      }
+      imageBuffer = Buffer.from(await data.arrayBuffer());
+      originalName = existingAssessment.imageKey.split('/').pop() || "image.jpg";
+      const ext = originalName.split('.').pop()?.toLowerCase();
+      mimeType = ext === 'png' ? 'image/png' : (ext === 'webp' ? 'image/webp' : 'image/jpeg');
+    } else if (req.file) {
+      imageBuffer = req.file.buffer;
+      originalName = req.file.originalname;
+      mimeType = req.file.mimetype;
+    } else {
       return res.status(400).json({
         status: "error",
-        message: "No image uploaded",
+        error: "NO_IMAGE_SOURCE",
+        message: "No image uploaded and no valid assessmentId provided.",
       });
     }
 
     // Call FastAPI service
     const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
-    
-    const formData = new FormData();
-    const blob = new Blob([new Uint8Array(req.file.buffer)], { type: req.file.mimetype });
-    formData.append("file", blob, req.file.originalname);
 
+    const formData = new FormData();
+    const blob = new Blob([new Uint8Array(imageBuffer)], { type: mimeType });
+    formData.append("file", blob, originalName);
+
+    if (!woundId && existingAssessment?.woundId) {
+      woundId = existingAssessment.woundId;
+    }
+
+    // Upload original image to Supabase if it's a new upload
+    let objectName = existingAssessment?.imageKey || '';
+    if (!existingAssessment) {
+      const extension = originalName.split(".").pop()?.toLowerCase() || "jpg";
+      objectName = `tissue/${Date.now()}-${Math.random().toString(36).substring(2)}.${extension}`;
+
+      const { error: uploadError } = await supabase.storage.from(bucket).upload(objectName, imageBuffer, {
+        contentType: mimeType,
+        upsert: false
+      });
+
+      if (uploadError) {
+        console.error("Original image upload error:", uploadError);
+      }
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+    const tAiStart = performance.now();
     const aiResponse = await fetch(`${FASTAPI_URL}/api/v1/analyze-tissue-upload/`, {
       method: "POST",
       body: formData,
+      signal: controller.signal as RequestInit["signal"],
     });
+    clearTimeout(timeoutId);
+    timings.aiInferenceMs = Number((performance.now() - tAiStart).toFixed(2));
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       
-      // Forward structured FastAPI errors
       if (aiResponse.status === 422 || aiResponse.status === 400 || aiResponse.status === 503) {
         try {
           const errJson = JSON.parse(errorText);
@@ -981,8 +1192,93 @@ app.post("/api/analysis/tissue", requireAuth, requireRoles(["DOCTOR", "ADMIN"]),
     
     const aiAnalysis = await aiResponse.json();
     
+    let createdAssessment = existingAssessment;
+    if (aiAnalysis.tissue_composition) {
+        let annotatedImageKey: string | null = null;
+        if (aiAnalysis.annotated_image_base64) {
+            let base64Data = aiAnalysis.annotated_image_base64;
+            if (base64Data.includes("base64,")) {
+                base64Data = base64Data.split("base64,")[1];
+            }
+            const buffer = Buffer.from(base64Data, 'base64');
+            annotatedImageKey = `tissue-analysis/${Date.now()}/annotated.jpg`;
+            const tUploadStart = performance.now();
+            const { error: uploadError2 } = await supabase.storage.from(bucket).upload(annotatedImageKey, buffer, {
+                contentType: "image/jpeg",
+                upsert: false
+            });
+            timings.storageUploadMs = Number((performance.now() - tUploadStart).toFixed(2));
+            if (!uploadError2) {
+                aiAnalysis.annotated_image_url = `/api/images/${annotatedImageKey}`;
+            }
+        }
+
+        if (existingAssessment) {
+            const updatePayload = JSON.stringify({
+                tissue_composition: aiAnalysis.tissue_composition,
+                inference_metadata: aiAnalysis.inference_metadata,
+                tissue_annotated_image_url: aiAnalysis.annotated_image_url
+            });
+
+            const tUpdateStart = performance.now();
+            try {
+                const updatedRows = await prisma.$queryRaw<any[]>`
+                    UPDATE "Assessment"
+                    SET "measurements" = COALESCE("measurements", '{}'::jsonb) || ${updatePayload}::jsonb
+                    WHERE "id" = ${existingAssessment.id}
+                    RETURNING *;
+                `;
+                createdAssessment = updatedRows[0] || null;
+            } catch (rawError) {
+                console.warn("[TISSUE UPLOAD] Raw atomic update failed, falling back to transaction update:", rawError);
+                createdAssessment = await prisma.$transaction(async (tx) => {
+                    const fresh = await tx.assessment.findUnique({ where: { id: existingAssessment.id } });
+                    const freshMeas = (fresh && typeof fresh.measurements === 'object' && fresh.measurements !== null)
+                        ? (fresh.measurements as Record<string, any>)
+                        : {};
+                    return tx.assessment.update({
+                        where: { id: existingAssessment.id },
+                        data: {
+                            measurements: {
+                                ...freshMeas,
+                                tissue_composition: aiAnalysis.tissue_composition,
+                                inference_metadata: aiAnalysis.inference_metadata,
+                                tissue_annotated_image_url: aiAnalysis.annotated_image_url
+                            }
+                        }
+                    });
+                });
+            }
+            timings.dbUpdateMs = Number((performance.now() - tUpdateStart).toFixed(2));
+        } else if (woundId) {
+            createdAssessment = await prisma.assessment.create({
+                data: {
+                    woundId,
+                    imageKey: objectName,
+                    annotatedImageKey,
+                    measurements: {
+                        tissue_composition: aiAnalysis.tissue_composition,
+                        inference_metadata: aiAnalysis.inference_metadata
+                    },
+                    woundDetected: true,
+                    status: "COMPLETED",
+                    notes: "Tissue Analysis"
+                }
+            });
+        }
+    }
+
+    console.log(JSON.stringify({
+      type: "STAGE_TIMING",
+      requestId: (req as any).id,
+      stage: "tissue_analysis",
+      assessmentId: existingAssessment?.id ?? req.body.assessmentId,
+      ...timings
+    }));
+
     res.json({
       status: "ok",
+      assessment: createdAssessment,
       ...aiAnalysis
     });
   } catch (error: any) {
@@ -995,11 +1291,56 @@ app.post("/api/analysis/tissue", requireAuth, requireRoles(["DOCTOR", "ADMIN"]),
   }
 });
 
+// Global Error Handling Middleware (including Multer errors)
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        status: "error",
+        error: "IMAGE_TOO_LARGE",
+        message: "Uploaded image exceeds the 20 MB size limit."
+      });
+    }
+    return res.status(400).json({
+      status: "error",
+      error: "UPLOAD_ERROR",
+      message: err.message
+    });
+  }
+  if (err && (err.message === "Only JPEG, PNG, and WebP images are allowed" || err.message?.includes("images are allowed"))) {
+    return res.status(400).json({
+      status: "error",
+      error: "INVALID_IMAGE_TYPE",
+      message: err.message
+    });
+  }
+  console.error("Unhandled error:", err);
+  res.status(err.status || 500).json({
+    status: "error",
+    error: err.code || "INTERNAL_ERROR",
+    message: err.message || "An unexpected error occurred"
+  });
+});
+
 // Start server
 const PORT = Number(process.env.PORT) || 5000;
 
 const server = app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`);
+
+  // Keep Render free-tier dyno warm — ping /api/health every 14 minutes.
+  // Render spins down free instances after 15 min of inactivity.
+  if (isProduction) {
+    const KEEPALIVE_URL = process.env.RENDER_EXTERNAL_URL
+      ? `${process.env.RENDER_EXTERNAL_URL}/api/health`
+      : `http://localhost:${PORT}/api/health`;
+
+    setInterval(() => {
+      fetch(KEEPALIVE_URL, { signal: AbortSignal.timeout(10_000) })
+        .then(() => console.log('[keepalive] ping ok'))
+        .catch((err) => console.warn('[keepalive] ping failed:', err.message));
+    }, 14 * 60 * 1000); // every 14 minutes
+  }
 });
 
 server.on("error", (error) => {
@@ -1011,10 +1352,11 @@ process.on("SIGINT", async () => {
   console.log("Shutting down server...");
 
   await prisma.$disconnect();
+  await dbPool.end();
 
   server.close(() => {
     process.exit(0);
   });
 });
 
-export { app, server };
+export { app, server, prisma, dbPool };

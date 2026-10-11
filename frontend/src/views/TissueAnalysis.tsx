@@ -6,7 +6,7 @@ import { apiFetch } from '../utils/api';
 import { type AnalyzeTissueResponse } from '../types/tissue';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
 const COLORS: Record<string, string> = {
   Epithelial: '#FBCFE8', // pink-200
@@ -21,6 +21,8 @@ const COLORS: Record<string, string> = {
 export const TissueAnalysis: React.FC = () => {
   const { woundId } = useParams<{ woundId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const assessmentId = searchParams.get('assessmentId');
   const { patients, wounds } = useWounds();
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -45,6 +47,38 @@ export const TissueAnalysis: React.FC = () => {
     }
   }, [selectedFile]);
 
+  useEffect(() => {
+    if (assessmentId) {
+      const loadAssessment = async () => {
+        try {
+          const res = await apiFetch(`/api/assessments/${assessmentId}`);
+          if (!res.ok) throw new Error('Failed to load assessment');
+          const data = await res.json();
+          if (data.status === 'ok' && data.assessment) {
+            const existing = data.assessment;
+            if (existing.measurements && existing.measurements.tissue_composition) {
+              setStatus('success');
+              setResult({
+                tissue_composition: existing.measurements.tissue_composition,
+                inference_metadata: existing.measurements.inference_metadata || { model_name: 'Unknown', model_version: 'Unknown', message: 'Loaded from history' },
+                annotated_image_base64: existing.annotatedImageKey || null,
+                annotated_image_url: existing.annotatedImageKey ? `/api/images/${existing.annotatedImageKey}` : undefined
+              });
+              
+              if (existing.imageKey) {
+                  setPreviewUrl(`/api/images/${existing.imageKey}`);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error loading assessment', err);
+        }
+      };
+      
+      loadAssessment();
+    }
+  }, [assessmentId]);
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setSelectedFile(e.target.files[0]);
@@ -62,6 +96,9 @@ export const TissueAnalysis: React.FC = () => {
 
     const formData = new FormData();
     formData.append('image', selectedFile);
+    if (woundId) {
+        formData.append('woundId', woundId);
+    }
 
     try {
       const res = await apiFetch('/api/analysis/tissue', {
@@ -109,6 +146,10 @@ export const TissueAnalysis: React.FC = () => {
     setErrorMessage('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+    // Remove assessmentId from URL if present
+    if (assessmentId) {
+      navigate(`/wounds/${woundId}/tissue`, { replace: true });
     }
   };
 
@@ -237,11 +278,11 @@ export const TissueAnalysis: React.FC = () => {
                 </div>
 
                 {/* Annotated Image */}
-                {result.annotated_image_base64 && (
+                {(result.annotated_image_base64 || result.annotated_image_url) && (
                   <div className="space-y-2">
                     <h5 className="text-sm font-semibold text-slate-700">AI-Estimated Tissue Composition Map</h5>
-                    <div className="rounded-lg overflow-hidden border border-slate-200 bg-slate-100 flex justify-center items-center h-64">
-                      <img src={result.annotated_image_base64} alt="Annotated Wound" className="max-h-full max-w-full object-contain" />
+                    <div className="rounded-lg overflow-hidden border border-slate-200 bg-slate-100 flex justify-center items-center min-h-[16rem]">
+                      <img src={result.annotated_image_url || result.annotated_image_base64 || undefined} alt="Annotated Wound" className="max-h-full max-w-full object-contain" />
                     </div>
                   </div>
                 )}

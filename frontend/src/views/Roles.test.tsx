@@ -55,12 +55,12 @@ describe('RBAC for Tissue Analysis', () => {
 
   it('11. DOCTOR can access the feature', () => {
     renderWithRole('DOCTOR');
-    expect(screen.getByText('Analyze Tissue')).toBeDefined();
+    expect(screen.getAllByText('Analyze Tissue').length).toBeGreaterThan(0);
   });
 
   it('12. ADMIN can access the feature', () => {
     renderWithRole('ADMIN');
-    expect(screen.getByText('Analyze Tissue')).toBeDefined();
+    expect(screen.getAllByText('Analyze Tissue').length).toBeGreaterThan(0);
   });
 
   it('13. VIEWER cannot access the actionable feature', () => {

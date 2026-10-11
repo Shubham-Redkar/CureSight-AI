@@ -18,4 +18,5 @@ export interface AnalyzeTissueResponse {
   tissue_composition: TissueCompositionPercentages;
   inference_metadata: InferenceMetadata;
   annotated_image_base64: string | null;
+  annotated_image_url?: string;
 }

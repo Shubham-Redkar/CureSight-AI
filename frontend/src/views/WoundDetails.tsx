@@ -19,6 +19,11 @@ export const WoundDetails: React.FC = () => {
     return <div className="text-red-500 py-12 text-center">{error}</div>;
   }
 
+  // Find the latest tissue analysis
+  const tissueAssessments = woundAssessments.filter(a => a.notes === 'Tissue Analysis' || (a.measurements && a.measurements.tissue_composition));
+  const latestTissueAnalysis = tissueAssessments.sort((a, b) => new Date(b.assessmentDate).getTime() - new Date(a.assessmentDate).getTime())[0];
+  const comp = latestTissueAnalysis?.measurements?.tissue_composition;
+
   if (isLoading || !wound || !patient) {
     return <div className="text-center py-12 text-slate-500">Loading wound details...</div>;
   }
@@ -85,6 +90,77 @@ export const WoundDetails: React.FC = () => {
             <p className="text-base mt-1 text-slate-800">{wound.description}</p>
           </div>
         )}
+      </div>
+
+      <div className="mt-8">
+        <h3 className="text-lg font-bold text-slate-900 mb-4">Tissue Analysis</h3>
+        <Card>
+          {!latestTissueAnalysis || !comp ? (
+            <div className="text-center py-6">
+              <p className="text-slate-500 mb-4">No tissue analysis available.</p>
+              {(user?.role === 'DOCTOR' || user?.role === 'ADMIN') && (
+                <Button
+                  onClick={() => navigate(`/wounds/${wound.id}/tissue`)}
+                  className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Analyze Tissue
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h4 className="text-sm font-bold text-slate-800">Latest Analysis ({new Date(latestTissueAnalysis.assessmentDate).toLocaleDateString()})</h4>
+                <Button
+                  onClick={() => navigate(`/wounds/${wound.id}/tissue?assessmentId=${latestTissueAnalysis.id}`)}
+                  variant="secondary"
+                  className="cursor-pointer text-blue-600 border-blue-200 hover:bg-blue-50"
+                  size="sm"
+                >
+                  View Tissue Analysis
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
+                {comp.granulation > 0 && (
+                  <div className="bg-slate-50 p-3 rounded border border-slate-100">
+                    <div className="text-xs text-slate-500">Granulation</div>
+                    <div className="text-lg font-bold text-red-600">{comp.granulation.toFixed(1)}%</div>
+                  </div>
+                )}
+                {comp.slough > 0 && (
+                  <div className="bg-slate-50 p-3 rounded border border-slate-100">
+                    <div className="text-xs text-slate-500">Slough</div>
+                    <div className="text-lg font-bold text-yellow-600">{comp.slough.toFixed(1)}%</div>
+                  </div>
+                )}
+                {comp.necrotic > 0 && (
+                  <div className="bg-slate-50 p-3 rounded border border-slate-100">
+                    <div className="text-xs text-slate-500">Necrotic</div>
+                    <div className="text-lg font-bold text-slate-800">{comp.necrotic.toFixed(1)}%</div>
+                  </div>
+                )}
+                {comp.epithelial > 0 && (
+                  <div className="bg-slate-50 p-3 rounded border border-slate-100">
+                    <div className="text-xs text-slate-500">Epithelial</div>
+                    <div className="text-lg font-bold text-pink-500">{comp.epithelial.toFixed(1)}%</div>
+                  </div>
+                )}
+                {comp.callus > 0 && (
+                  <div className="bg-slate-50 p-3 rounded border border-slate-100">
+                    <div className="text-xs text-slate-500">Callus</div>
+                    <div className="text-lg font-bold text-slate-400">{comp.callus.toFixed(1)}%</div>
+                  </div>
+                )}
+                {comp.fibrin > 0 && (
+                  <div className="bg-slate-50 p-3 rounded border border-slate-100">
+                    <div className="text-xs text-slate-500">Fibrin</div>
+                    <div className="text-lg font-bold text-yellow-400">{comp.fibrin.toFixed(1)}%</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </Card>
       </div>
 
       <div className="mt-8">
