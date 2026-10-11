@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { apiFetch } from '../utils/api';
+import { apiFetch, buildImageUrl } from '../utils/api';
 import type { Patient, Wound, Assessment } from '../types';
 
 interface WoundContextType {
@@ -30,8 +30,6 @@ interface WoundContextType {
 }
 
 const WoundContext = createContext<WoundContextType | undefined>(undefined);
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -167,6 +165,8 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                      woundsList: assessment.measurements?.wounds ?? [],
                  },
                  tissueAnalysis: assessment.notes || 'Analysis complete',
+                 tissueComposition: assessment.measurements?.tissue_composition || null,
+                 tissueAnnotatedUrl: buildImageUrl(assessment.measurements?.tissue_annotated_image_url) || null,
                  calibration: assessment.measurements?.calibration || null
              };
           }
@@ -175,8 +175,8 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
              ...assessment,
              status: assessment.status === 'COMPLETED' ? 'Analysis Completed' : (assessment.status === 'FAILED' ? 'Analysis Failed' : 'Pending Analysis'),
              aiResult,
-             analyzedImageUrl: assessment.annotatedImageKey ? `${API_URL}/api/images/${assessment.annotatedImageKey}` : undefined,
-             imageUrl: assessment.imageKey ? `${API_URL}/api/images/${assessment.imageKey}` : undefined,
+             analyzedImageUrl: buildImageUrl(assessment.annotatedImageKey),
+             imageUrl: buildImageUrl(assessment.imageKey),
              error: assessment.status === 'FAILED' ? assessment.notes : undefined
           };
         });
@@ -240,8 +240,8 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 tissueAnalysis: ai.message || data.assessment.notes || 'Analysis complete',
                 calibration: data.assessment.measurements?.calibration || null
             },
-            analyzedImageUrl: ai.annotated_image_url ? `${API_URL}${ai.annotated_image_url}` : undefined,
-            imageUrl: data.objectName ? `${API_URL}/api/images/${data.objectName}` : undefined,
+            analyzedImageUrl: buildImageUrl(ai.annotated_image_url),
+            imageUrl: buildImageUrl(data.objectName),
             error: data.aiError
         };
 

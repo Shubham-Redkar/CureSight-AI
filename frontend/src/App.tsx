@@ -55,8 +55,9 @@ function AppContent() {
 
 function AuthBoundary() {
   const { authenticated, loading } = useAuth();
+  const isLoginPage = typeof window !== 'undefined' && (window.location.pathname === '/login' || window.location.pathname === '/');
 
-  if (loading) {
+  if (loading && !isLoginPage) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>

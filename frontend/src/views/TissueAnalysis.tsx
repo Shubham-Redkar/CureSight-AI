@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useWounds } from '../context/WoundContext';
 import { Card, Button } from '../components/ui';
 import { ChevronLeft, Camera, Upload, AlertCircle, Info, RefreshCw } from 'lucide-react';
-import { apiFetch } from '../utils/api';
+import { apiFetch, buildImageUrl } from '../utils/api';
 import { type AnalyzeTissueResponse } from '../types/tissue';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
@@ -62,11 +62,11 @@ export const TissueAnalysis: React.FC = () => {
                 tissue_composition: existing.measurements.tissue_composition,
                 inference_metadata: existing.measurements.inference_metadata || { model_name: 'Unknown', model_version: 'Unknown', message: 'Loaded from history' },
                 annotated_image_base64: existing.annotatedImageKey || null,
-                annotated_image_url: existing.annotatedImageKey ? `/api/images/${existing.annotatedImageKey}` : undefined
+                annotated_image_url: buildImageUrl(existing.annotatedImageKey)
               });
               
               if (existing.imageKey) {
-                  setPreviewUrl(`/api/images/${existing.imageKey}`);
+                  setPreviewUrl(buildImageUrl(existing.imageKey) || null);
               }
             }
           }
@@ -282,7 +282,7 @@ export const TissueAnalysis: React.FC = () => {
                   <div className="space-y-2">
                     <h5 className="text-sm font-semibold text-slate-700">AI-Estimated Tissue Composition Map</h5>
                     <div className="rounded-lg overflow-hidden border border-slate-200 bg-slate-100 flex justify-center items-center min-h-[16rem]">
-                      <img src={result.annotated_image_url || result.annotated_image_base64 || undefined} alt="Annotated Wound" className="max-h-full max-w-full object-contain" />
+                      <img src={buildImageUrl(result.annotated_image_url) || result.annotated_image_base64 || undefined} alt="Annotated Wound" className="max-h-full max-w-full object-contain" />
                     </div>
                   </div>
                 )}

@@ -90,7 +90,10 @@ export const NewAssessment: React.FC = () => {
       // Navigate to AssessmentDetail
       navigate(`/assessments/${newAss.id}`);
     } catch (err: any) {
-      setError(`Error: ${err.message}`);
+      const msg = err?.message === 'fetch failed'
+        ? 'Diagnostic analysis failed: Connection to backend or AI service failed. Please ensure services are running.'
+        : (err?.message || 'Diagnostic analysis failed.');
+      setError(`Error: ${msg}`);
       setIsLoading(false);
     }
   };
