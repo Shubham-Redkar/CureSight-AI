@@ -17,6 +17,10 @@ class WoundStageResponse(BaseModel):
 class PerWoundResponse(BaseModel):
     wound_id: int
     detection_confidence: float | None = None
+    area_pixels: float | None = None
+    perimeter_pixels: float | None = None
+    width_pixels: float | None = None
+    height_pixels: float | None = None
     area_cm2: float | None = None
     perimeter_cm: float | None = None
     length_cm: float | None = None
@@ -43,6 +47,8 @@ class AnalyzeWoundResponse(BaseModel):
     wound_detected: bool
     detection_confidence: float | None = None
     wound_count: int = 0
+    total_area_pixels: float | None = None
+    total_perimeter_pixels: float | None = None
     total_area_cm2: float | None = None
     total_perimeter_cm: float | None = None
     wounds: list[PerWoundResponse] = []
