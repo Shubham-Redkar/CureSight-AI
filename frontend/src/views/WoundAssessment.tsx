@@ -185,7 +185,16 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
 
   // Run AI analysis pipeline
   const handleStartAnalysis = async () => {
-    if (!selectedWoundId || !imageFile) return;
+    if (!imageFile) return;
+
+    // Validate wound ID: must be a positive integer matching an actual wound record
+    const parsedWoundId = selectedWoundId ? parseInt(selectedWoundId, 10) : NaN;
+    if (!selectedWoundId || isNaN(parsedWoundId) || parsedWoundId <= 0 || !activeWound) {
+      setAnalysisProgress(
+        'Error: No wound site is selected. Please go back and choose a valid wound site from the list before starting analysis.'
+      );
+      return;
+    }
 
     setAnalysisProgress('Running AI Pipeline...');
     setIsLoading(true);
@@ -199,7 +208,8 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
       const rawBlob = await res.blob();
       
       setAnalysisProgress('Running AI Pipeline...');
-      const newAss = await runAnalysis(selectedWoundId, rawBlob, calibrationValue);
+      // Pass a well-typed object so runAnalysis always sends woundId as a numeric string
+      const newAss = await runAnalysis({ woundId: parsedWoundId }, rawBlob, calibrationValue);
       setSelectedAssessmentId(String(newAss.id));
       setAnalysisProgress('Analysis complete.');
     } catch (err: any) {
@@ -749,13 +759,22 @@ export const WoundAssessment: React.FC<WoundAssessmentProps> = ({
                                 No physical calibration marker was detected. Using the configured demonstration scale for testing only.
                               </div>
                             </div>
+                          ) : activeAssessment.aiResult.calibration.source === 'manual' && activeAssessment.aiResult.calibration.verified ? (
+                            <div className="space-y-1">
+                              <div className="text-teal-700 font-semibold flex items-center gap-1.5">✓ Clinician manual calibration</div>
+                              <div className="text-slate-655 flex justify-between"><span>Scale:</span> <span className="font-mono text-xs">{activeAssessment.aiResult.calibration.pixels_per_cm} px/cm</span></div>
+                              {activeAssessment.aiResult.calibration.reference_distance_cm && (
+                                <div className="text-slate-655 flex justify-between"><span>Reference distance:</span> <span className="font-mono">{activeAssessment.aiResult.calibration.reference_distance_cm} cm</span></div>
+                              )}
+                              <div className="text-slate-500 text-[11px] italic">Verified with known physical reference</div>
+                            </div>
                           ) : activeAssessment.aiResult.calibration.source === 'manual' ? (
                             <div className="space-y-1">
                               <div className="text-slate-700 font-semibold">Manual — Demonstration</div>
                               <div className="text-slate-655 flex justify-between mb-1"><span>Scale:</span> <span className="font-mono text-xs">{activeAssessment.aiResult.calibration.pixels_per_cm ? `${activeAssessment.aiResult.calibration.pixels_per_cm} px/cm` : 'Marker not detected'}</span></div>
                               <div className="text-amber-800 text-xs p-1.5 bg-amber-50 border border-amber-200 rounded mt-1">
                                 <span className="font-semibold text-amber-600">⚠ Demonstration measurement: </span>
-                                scale supplied manually.
+                                scale supplied manually without verified physical reference.
                               </div>
                             </div>
                           ) : (

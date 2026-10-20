@@ -40,6 +40,16 @@ export const ProgressAnalysis: React.FC = () => {
     }
   }, [woundId, patientWounds]);
 
+  // Auto-select wound if patient only has 1 tracked wound
+  useEffect(() => {
+    if (selectedPatientId && !woundId && patientWounds.length > 0) {
+      const matching = patientWounds.filter(w => String(w.patientId) === selectedPatientId);
+      if (matching.length === 1) {
+        navigate(`/wounds/${matching[0].id}/progress`, { replace: true });
+      }
+    }
+  }, [selectedPatientId, woundId, patientWounds, navigate]);
+
   // Fetch all wounds across all patients (or just fetch them once) to support wound finding
   useEffect(() => {
     let isMounted = true;
@@ -132,10 +142,11 @@ export const ProgressAnalysis: React.FC = () => {
 
   const getCalibrationLabel = (ass?: Assessment) => {
     if (!ass) return 'Unavailable';
-    const source = ass.aiResult?.calibration?.source;
+    const cal = ass.aiResult?.calibration;
+    const source = cal?.source;
     if (source === 'automatic') return 'Automatic';
+    if (source === 'manual') return cal?.verified ? 'Manual (Verified)' : 'Manual (Demo)';
     if (source === 'demo') return 'Demo — Demonstration';
-    if (source === 'manual') return 'Manual — Demonstration';
     return 'Unavailable';
   };
 
@@ -276,10 +287,25 @@ export const ProgressAnalysis: React.FC = () => {
         /* NO SELECTION STATE */
         <Card className="py-16 text-center">
           <Clock className="w-12 h-12 text-slate-350 stroke-1 mx-auto mb-3" />
-          <h3 className="font-semibold text-slate-700 text-sm">No Site Selected</h3>
-          <p className="text-xs text-slate-400 max-w-xs mx-auto mt-1">
-            Choose a patient and their specific wound site from the dropdown options to inspect longitudinal progress.
+          <h3 className="font-semibold text-slate-700 text-sm">
+            {selectedPatientId && patientWounds.filter(w => String(w.patientId) === selectedPatientId).length === 0
+              ? 'No Assessments Recorded Yet'
+              : 'No Site Selected'}
+          </h3>
+          <p className="text-xs text-slate-400 max-w-xs mx-auto mt-1 mb-3">
+            {selectedPatientId && patientWounds.filter(w => String(w.patientId) === selectedPatientId).length === 0
+              ? 'This patient has no recorded assessments yet. You can start a new assessment directly.'
+              : 'Choose a patient and their specific wound site from the dropdown options to inspect longitudinal progress.'}
           </p>
+          {selectedPatientId && patientWounds.filter(w => String(w.patientId) === selectedPatientId).length === 0 && (
+            <Button
+              size="sm"
+              onClick={() => navigate(`/assessments/new?patientId=${selectedPatientId}`)}
+              className="cursor-pointer"
+            >
+              Start Wound Assessment
+            </Button>
+          )}
         </Card>
       ) : loading ? (
         <Card className="py-16 text-center">

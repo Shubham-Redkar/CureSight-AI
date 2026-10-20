@@ -80,6 +80,17 @@ def process_wound_image(
             request_id=request_id
         )
         
+    cal_info = result.get("calibration") or {}
+    cal_source = cal_info.get("source")
+    # Physical measurements are available only if calibration is verified:
+    # 1. Automatic detection with reference marker confidently found (detected == True)
+    # 2. Explicit manual override supplied by user/clinician (source == "manual" and pixels_per_cm is not None)
+    # Unverified fallback scale (source == "demo" or source == "none") must NOT be presented as clinically reliable
+    is_verified_calibration = bool(
+        (cal_source == "automatic" and cal_info.get("detected") is True) or
+        (cal_source == "manual" and cal_info.get("pixels_per_cm") is not None)
+    )
+
     wounds_list = []
     total_area = None
     total_perimeter = None
@@ -91,7 +102,7 @@ def process_wound_image(
     if meas:
         total_area_pixels = meas.get("area_pixels")
         total_perimeter_pixels = meas.get("perimeter_pixels")
-        if meas.get("physical"):
+        if is_verified_calibration and meas.get("physical"):
             total_area = meas["physical"].get("area_cm2")
             total_perimeter = meas["physical"].get("perimeter_cm")
         
@@ -125,7 +136,7 @@ def process_wound_image(
         logger.warning(f"[{request_id}] Failed to annotate image: {e}")
     
     for i, roi_meas in enumerate(roi_measurements):
-        phys = roi_meas.get("physical") or {}
+        phys = (roi_meas.get("physical") or {}) if is_verified_calibration else {}
         
         w = PerWoundResponse(
             wound_id=i + 1,
@@ -164,6 +175,6 @@ def process_wound_image(
         message=result.get("message", "Wound analysis completed successfully."),
         annotated_image_base64=annotated_image_base64,
         calibration=result.get("calibration"),
-        physical_measurement_available=result.get("calibration", {}).get("pixels_per_cm") is not None,
+        physical_measurement_available=is_verified_calibration,
         wound_classification=result.get("wound_classification")
     )

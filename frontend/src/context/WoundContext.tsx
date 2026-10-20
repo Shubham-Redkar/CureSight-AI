@@ -16,15 +16,29 @@ interface WoundContextType {
   isLoading: boolean;
   error: string | null;
   loadPatients: () => Promise<void>;
-  addPatient: (patient: Omit<Patient, 'id' | 'woundsCount' | 'overallHealingStatus'>) => Promise<Patient>;
+  addPatient: (patient: { name: string; age?: number | null; patientCode?: string }) => Promise<Patient>;
   loadWounds: (patientId: number | string) => Promise<void>;
-  addWound: (wound: Omit<Wound, 'id' | 'createdAt' | 'updatedAt' | 'status'>) => Promise<Wound>;
-  loadAssessments: (woundId: number | string) => Promise<void>;
-  runAnalysis: (woundId: number | string, imageBlob: Blob, pixelsPerCm?: number) => Promise<Assessment>;
+  addWound: (wound: Omit<Wound, 'id' | 'createdAt' | 'updatedAt' | 'status'> | { patientId: number; location?: string; description?: string }) => Promise<Wound>;
+  loadAssessments: (woundId?: number | string, patientId?: number | string) => Promise<void>;
+  runAnalysis: (
+    target: number | string | { woundId?: number | string; patientId?: number | string; location?: string },
+    imageBlob: Blob,
+    pixelsPerCm?: number
+  ) => Promise<Assessment>;
   verifyAssessment: (
     assessmentId: number | string,
     verifiedResult: NonNullable<Assessment['verifiedResult']>
   ) => void;
+  calibrateAssessment: (
+    assessmentId: number | string,
+    payload: {
+      point1?: [number, number] | { x: number; y: number };
+      point2?: [number, number] | { x: number; y: number };
+      reference_distance_cm?: number;
+      pixels_per_cm?: number;
+      notes?: string;
+    }
+  ) => Promise<any>;
   updateSettings: (newSettings: Partial<WoundContextType['settings']>) => void;
   clearError: () => void;
 }
@@ -72,7 +86,7 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     loadPatients();
   }, []);
 
-  const addPatient = async (patientData: Omit<Patient, 'id' | 'woundsCount' | 'overallHealingStatus'>) => {
+  const addPatient = async (patientData: { name: string; age?: number | null; patientCode?: string }) => {
     let res;
     try {
       res = await apiFetch(`/api/patients`, {
@@ -116,7 +130,7 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const addWound = async (woundData: Omit<Wound, 'id' | 'createdAt' | 'updatedAt' | 'status'>) => {
+  const addWound = async (woundData: Omit<Wound, 'id' | 'createdAt' | 'updatedAt' | 'status'> | { patientId: number; location?: string; description?: string }): Promise<Wound> => {
     const patient = patients.find(p => p.id === woundData.patientId);
     if (!patient) throw new Error("Patient not found");
 
@@ -127,7 +141,7 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           patientId: patient.id,
-          location: woundData.location,
+          location: woundData.location || "General Wound Site",
           description: woundData.description
         })
       });
@@ -141,11 +155,16 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return newWound;
   };
 
-  const loadAssessments = async (woundId: number | string) => {
+  const loadAssessments = async (woundId?: number | string, patientId?: number | string) => {
     try {
+      let queryParam = '';
+      if (woundId) queryParam = `woundId=${woundId}`;
+      else if (patientId) queryParam = `patientId=${patientId}`;
+      else return;
+
       let res;
       try {
-        res = await apiFetch(`/api/assessments?woundId=${woundId}`);
+        res = await apiFetch(`/api/assessments?${queryParam}`);
       } catch (err) {
         throw new Error("Unable to connect to the backend server. Please make sure the server is running.");
       }
@@ -154,7 +173,7 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (data.status === 'ok') {
         const mappedAssessments = data.assessments.map((assessment: any) => {
           let aiResult = undefined;
-          if (assessment.status === 'COMPLETED') {
+          if (assessment.status === 'COMPLETED' || assessment.status === 'VERIFIED') {
              aiResult = {
                  detectionConfidence: assessment.measurements?.wounds?.[0]?.detection_confidence ?? null,
                  measurements: {
@@ -173,7 +192,7 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
           return {
              ...assessment,
-             status: assessment.status === 'COMPLETED' ? 'Analysis Completed' : (assessment.status === 'FAILED' ? 'Analysis Failed' : 'Pending Analysis'),
+             status: assessment.status === 'COMPLETED' ? 'Analysis Completed' : (assessment.status === 'FAILED' ? 'Analysis Failed' : (assessment.status === 'VERIFIED' ? 'Verified' : 'Pending Analysis')),
              aiResult,
              analyzedImageUrl: buildImageUrl(assessment.annotatedImageKey),
              imageUrl: buildImageUrl(assessment.imageKey),
@@ -182,7 +201,8 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
 
         setAssessments(prev => {
-          const others = prev.filter(a => a.woundId !== Number(woundId));
+          const newIds = new Set(mappedAssessments.map((a: any) => a.id));
+          const others = prev.filter(a => !newIds.has(a.id));
           return [...mappedAssessments, ...others];
         });
       }
@@ -191,16 +211,39 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const runAnalysis = async (woundId: number | string, imageBlob: Blob, pixelsPerCm?: number) => {
+  const runAnalysis = async (
+    target: number | string | { woundId?: number | string; patientId?: number | string; location?: string },
+    imageBlob: Blob,
+    pixelsPerCm?: number
+  ) => {
     try {
-      const activeWound = wounds.find(w => w.id === Number(woundId));
-      if (!activeWound) {
-        throw new Error("The selected wound could not be found.");
+      let woundIdToUse: string | null = null;
+      let patientIdToUse: string | null = null;
+      let locationToUse: string | null = null;
+
+      if (typeof target === 'object' && target !== null) {
+        if (target.woundId) woundIdToUse = target.woundId.toString();
+        if (target.patientId) patientIdToUse = target.patientId.toString();
+        if (target.location) locationToUse = target.location;
+      } else if (target) {
+        woundIdToUse = target.toString();
+      }
+
+      if (!woundIdToUse && !patientIdToUse) {
+        throw new Error("Either a wound or patient must be selected for analysis.");
       }
 
       const formData = new FormData();
       formData.append("image", imageBlob, "upload.jpg");
-      formData.append("woundId", activeWound.id.toString());
+      if (woundIdToUse) {
+        formData.append("woundId", woundIdToUse);
+      }
+      if (patientIdToUse) {
+        formData.append("patientId", patientIdToUse);
+      }
+      if (locationToUse) {
+        formData.append("location", locationToUse);
+      }
       
       if (pixelsPerCm && pixelsPerCm > 0) {
         formData.append("pixels_per_cm", pixelsPerCm.toString());
@@ -220,6 +263,17 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       
       if (!response.ok) {
         throw new Error(data.message || data.error || "Upload failed");
+      }
+
+      // If backend created/returned a wound, update wounds state
+      if (data.wound) {
+        setWounds(prev => {
+          const exists = prev.some(w => w.id === data.wound.id);
+          if (exists) {
+            return prev.map(w => w.id === data.wound.id ? data.wound : w);
+          }
+          return [data.wound, ...prev];
+        });
       }
 
       // Add the created assessment from response (this includes error states if FAILED)
@@ -290,6 +344,35 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  const calibrateAssessment = async (
+    assessmentId: number | string,
+    payload: {
+      point1?: [number, number] | { x: number; y: number };
+      point2?: [number, number] | { x: number; y: number };
+      reference_distance_cm?: number;
+      pixels_per_cm?: number;
+      notes?: string;
+    }
+  ) => {
+    try {
+      const res = await apiFetch(`/api/assessments/${assessmentId}/calibrate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || "Failed to calibrate assessment");
+
+      if (data.assessment?.woundId) {
+        await loadAssessments(data.assessment.woundId);
+      }
+      return data.assessment;
+    } catch (err: any) {
+      setError(err.message || "Failed to calibrate assessment");
+      throw err;
+    }
+  };
+
   const updateSettings = (newSettings: Partial<WoundContextType['settings']>) => {
     setSettings({ ...settings, ...newSettings });
   };
@@ -319,6 +402,7 @@ export const WoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         loadAssessments,
         runAnalysis,
         verifyAssessment,
+        calibrateAssessment,
         updateSettings,
         clearError,
       }}

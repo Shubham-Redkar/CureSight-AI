@@ -127,11 +127,13 @@ class MLPipeline:
         if cal_res and cal_res.get("detected"):
             calibration_result = cal_res
             calibration_result["source"] = "automatic"
+            calibration_result["verified"] = True
             pixels_per_cm = cal_res.get("pixels_per_cm")
         elif pixels_per_cm is not None:
             calibration_result = {
                 "source": "manual",
                 "detected": False,
+                "verified": True,
                 "pixels_per_cm": pixels_per_cm,
                 "marker_width_px": None,
                 "marker_height_px": None,
@@ -145,6 +147,7 @@ class MLPipeline:
             calibration_result = {
                 "source": "demo",
                 "detected": False,
+                "verified": False,
                 "pixels_per_cm": demo_pixels,
                 "marker_width_px": None,
                 "marker_height_px": None,
@@ -152,13 +155,14 @@ class MLPipeline:
                 "marker_height_cm": None,
                 "confidence": None,
                 "reason": "DEMO_FALLBACK",
-                "label": "Default Demonstration Scale"
+                "label": "Default Demonstration Scale (Unverified)"
             }
             pixels_per_cm = demo_pixels
         else:
             calibration_result = {
                 "source": "none",
                 "detected": False,
+                "verified": False,
                 "pixels_per_cm": None,
                 "marker_width_px": None,
                 "marker_height_px": None,
@@ -196,6 +200,20 @@ class MLPipeline:
             # Scale the calibration to match the resized image
             if pixels_per_cm is not None:
                 pixels_per_cm *= ratio
+
+            if response.get("calibration"):
+                cal = response["calibration"]
+                if cal.get("pixels_per_cm") is not None:
+                    cal["pixels_per_cm"] = round(cal["pixels_per_cm"] * ratio, 3)
+                if cal.get("marker_width_px") is not None:
+                    cal["marker_width_px"] = round(cal["marker_width_px"] * ratio, 1)
+                if cal.get("marker_height_px") is not None:
+                    cal["marker_height_px"] = round(cal["marker_height_px"] * ratio, 1)
+                if cal.get("pixels_per_cm_width") is not None:
+                    cal["pixels_per_cm_width"] = round(cal["pixels_per_cm_width"] * ratio, 3)
+                if cal.get("pixels_per_cm_height") is not None:
+                    cal["pixels_per_cm_height"] = round(cal["pixels_per_cm_height"] * ratio, 3)
+                cal["resize_ratio"] = ratio
             
         # 1. Wound Gate
         if self.wound_gate.required and not self.wound_gate.is_loaded:
