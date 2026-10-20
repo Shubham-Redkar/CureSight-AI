@@ -201,9 +201,16 @@ def test_pipeline_e2e_demo_fallback(mock_validate, mock_segment, mock_detect, mo
     calib = data.get("calibration")
     assert calib.get("source") == "demo"
     assert calib.get("pixels_per_cm") == 25.0
-    assert calib.get("label") == "Default Demonstration Scale"
+    assert "Default Demonstration Scale" in calib.get("label", "")
+    assert calib.get("verified") is False
+    assert calib.get("detected") is False
     
-    assert data.get("physical_measurement_available") is True
+    # Safe fallback: physical measurements are marked unavailable, raw pixels preserved
+    assert data.get("physical_measurement_available") is False
+    assert data.get("total_area_cm2") is None
+    assert data.get("total_area_pixels") is not None
+    assert data.get("wounds")[0].get("area_pixels") is not None
+    assert data.get("wounds")[0].get("area_cm2") is None
 
 @patch('api.services.pipeline.analyze_image_quality')
 @patch('api.services.pipeline.load_config')
@@ -268,3 +275,158 @@ def test_pipeline_e2e_invalid_manual_value():
             response = client.post("/api/v1/analyze-wound-upload/", data={"pixels_per_cm": -5.0}, files={"file": ("no_marker.png", f, "image/png")})
             
     assert response.status_code == 422
+
+def test_perspective_distorted_marker():
+    """
+    Test that a square viewed under realistic perspective angle (~15-20 deg)
+    is detected by the improved calibration detector.
+    """
+    config = get_config()
+    detector = CalibrationDetector(config)
+    img = np.zeros((800, 800, 3), dtype=np.uint8)
+    # Perspective quadrilateral: top edge 44px, bottom 52px, height 48px
+    pts = np.array([[204, 200], [248, 200], [252, 248], [200, 248]], dtype=np.int32)
+    cv2.fillPoly(img, [pts], (0, 255, 0))
+
+    result = detector.detect(img)
+    assert result["detected"] is True, "Perspective-distorted marker should be detected"
+    assert result["pixels_per_cm"] is not None
+    assert result["source"] == "automatic"
+    assert result["confidence"] >= 0.82
+
+def test_rotated_marker():
+    """
+    Test that a valid 2cm x 2cm marker rotated by 30 degrees is detected.
+    """
+    config = get_config()
+    detector = CalibrationDetector(config)
+    img = np.zeros((600, 600, 3), dtype=np.uint8)
+
+    # Create 50x50 square rotated by 30 deg
+    rect = ((300, 300), (50, 50), 30.0)
+    box = np.int32(cv2.boxPoints(rect))
+    cv2.fillPoly(img, [box], (0, 255, 0))
+
+    result = detector.detect(img)
+    assert result["detected"] is True, "Rotated marker should be detected"
+    assert abs(result["pixels_per_cm"] - 25.0) <= 2.0
+
+def test_high_resolution_small_marker():
+    """
+    In a high-resolution image (e.g. 2000x2000 = 4MP), a 40x40 marker takes up
+    1600 / 4,000,000 = 0.0004 of the image. The detector must accept it without false noise rejection.
+    """
+    config = get_config()
+    detector = CalibrationDetector(config)
+    img = np.zeros((2000, 2000, 3), dtype=np.uint8)
+    cv2.rectangle(img, (500, 500), (540, 540), (0, 255, 0), -1)
+
+    result = detector.detect(img)
+    assert result["detected"] is True, "Marker in high-resolution image must be detected"
+    assert abs(result["pixels_per_cm"] - 20.0) <= 1.5
+
+def test_false_positive_skin_and_dressings():
+    """
+    Ensure skin tones and white dressing patches are rejected even if rectangular.
+    """
+    config = get_config()
+    detector = CalibrationDetector(config)
+    img = np.zeros((500, 500, 3), dtype=np.uint8)
+
+    # Skin tone rectangle (BGR: peach/skin tone)
+    cv2.rectangle(img, (100, 100), (160, 160), (140, 180, 220), -1)
+    res_skin = detector.detect(img)
+    assert res_skin["detected"] is False
+
+    # White dressing rectangle (BGR: near-white)
+    cv2.rectangle(img, (250, 250), (310, 310), (245, 245, 245), -1)
+    res_dressing = detector.detect(img)
+    assert res_dressing["detected"] is False
+
+@patch('api.services.pipeline.analyze_image_quality')
+@patch('api.services.pipeline.WoundGate.predict')
+@patch('api.services.pipeline.YoloDetector.detect')
+@patch('api.services.pipeline.UNetSegmenter.segment')
+@patch('api.services.pipeline.SegmentationValidator.validate')
+def test_pipeline_resize_calibration_consistency(mock_validate, mock_segment, mock_detect, mock_predict, mock_quality):
+    """
+    When an image exceeds api_limits (4096), pipeline downscales it.
+    Verify that response['calibration'] metadata correctly scales pixels_per_cm and marker dimensions.
+    """
+    from api.services.pipeline import MLPipeline
+    mock_quality.return_value = {"accepted": True, "reasons": [], "width": 5000, "height": 3000}
+    mock_predict.return_value = {"is_wound": True, "confidence": 0.99}
+    mock_detect.return_value = {
+        "detected": True,
+        "detections": [{"bbox": [10, 10, 100, 100], "confidence": 0.9}]
+    }
+    mock_segment.return_value = {"roi_mask": np.ones((90, 90), dtype=np.uint8)}
+    mock_validate.return_value = {"valid": True, "message": "OK"}
+
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        big_img = np.zeros((3000, 5000, 3), dtype=np.uint8)
+        # 100x100 marker -> in 2.0cm marker -> 50 px/cm
+        cv2.rectangle(big_img, (500, 500), (600, 600), (0, 255, 0), -1)
+        cv2.imwrite(tmp.name, big_img)
+        tmp_path = tmp.name
+
+    try:
+        pipeline = MLPipeline()
+        result = pipeline.process_image(tmp_path)
+        cal = result.get("calibration")
+        assert cal is not None
+        assert cal.get("detected") is True
+        expected_scale = round(50.0 * (4096.0 / 5000.0), 3)
+        assert abs(cal.get("pixels_per_cm") - expected_scale) < 1.0
+        assert cal.get("resize_ratio") == (4096.0 / 5000.0)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+@patch('api.services.pipeline.analyze_image_quality')
+@patch('api.services.pipeline.WoundGate.predict')
+@patch('api.services.pipeline.YoloDetector.detect')
+@patch('api.services.pipeline.UNetSegmenter.segment')
+@patch('api.services.pipeline.SegmentationValidator.validate')
+def test_pipeline_below_resize_threshold_calibration_consistency(mock_validate, mock_segment, mock_detect, mock_predict, mock_quality):
+    """
+    When an image is below api_limits (e.g. 1000x1000 <= 4096), pipeline does not resize.
+    Verify that pixels_per_cm and coordinates remain in original image space without modification.
+    """
+    from api.services.pipeline import MLPipeline
+    mock_quality.return_value = {"accepted": True, "reasons": [], "width": 1000, "height": 1000}
+    mock_predict.return_value = {"is_wound": True, "confidence": 0.99}
+    mock_detect.return_value = {
+        "detected": True,
+        "detections": [{"bbox": [50, 50, 200, 200], "confidence": 0.95}]
+    }
+    mock_segment.return_value = {"roi_mask": np.ones((150, 150), dtype=np.uint8)}
+    mock_validate.return_value = {"valid": True, "message": "OK"}
+
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        std_img = np.zeros((1000, 1000, 3), dtype=np.uint8)
+        # 100x100 marker -> 2.0 cm -> 50 px/cm
+        cv2.rectangle(std_img, (300, 300), (400, 400), (0, 255, 0), -1)
+        cv2.imwrite(tmp.name, std_img)
+        tmp_path = tmp.name
+
+    try:
+        pipeline = MLPipeline()
+        result = pipeline.process_image(tmp_path)
+        cal = result.get("calibration")
+        assert cal is not None
+        assert cal.get("detected") is True
+        # Scale must be exactly ~50 px/cm without any downscale ratio applied
+        assert abs(cal.get("pixels_per_cm") - 50.0) < 1.0
+        assert cal.get("resize_ratio") is None
+        # Verify physical measurements computed with the exact unscaled pixels_per_cm
+        meas = result.get("measurements")
+        assert meas is not None
+        assert meas.get("physical") is not None
+        assert meas["physical"].get("area_cm2") is not None
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)

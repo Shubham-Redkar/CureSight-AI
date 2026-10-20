@@ -3,9 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useWounds } from '../context/WoundContext';
 import { useAuth } from '../context/AuthContext';
 import { Card, Button } from '../components/ui';
-import { CheckCircle, FileCheck, RotateCcw, Sparkles, AlertCircle } from 'lucide-react';
+import { CheckCircle, FileCheck, RotateCcw, Sparkles, AlertCircle, Ruler, X } from 'lucide-react';
 import type { Measurement } from '../types';
 import { apiFetch, buildImageUrl } from '../utils/api';
+import { mapRenderedToOriginalCoords } from '../utils/coordinateUtils';
 
 const formatMeasurement = (value: number | null | undefined, decimals = 2) => {
   if (value === null || value === undefined || isNaN(Number(value))) {
@@ -24,7 +25,7 @@ const formatConfidence = (value: number | null | undefined) => {
 export const AssessmentDetail: React.FC = () => {
   const { assessmentId } = useParams<{ assessmentId: string }>();
   const navigate = useNavigate();
-  const { wounds, patients, assessments, verifyAssessment, loadAssessments } = useWounds();
+  const { wounds, patients, assessments, verifyAssessment, calibrateAssessment, loadAssessments } = useWounds();
   const { user } = useAuth();
 
   const activeAssessment = assessments.find(a => a.id === Number(assessmentId));
@@ -63,6 +64,91 @@ export const AssessmentDetail: React.FC = () => {
 
   const [analyzingTissue, setAnalyzingTissue] = useState(false);
   const [tissueError, setTissueError] = useState<string | null>(null);
+
+  // Manual calibration state
+  const [showCalibrateModal, setShowCalibrateModal] = useState(false);
+  const [calibPoint1, setCalibPoint1] = useState<{ x: number; y: number } | null>(null);
+  const [calibPoint2, setCalibPoint2] = useState<{ x: number; y: number } | null>(null);
+  const [calibRefDist, setCalibRefDist] = useState<string>('2.0');
+  const [calibDirectScale, setCalibDirectScale] = useState<string>('');
+  const [calibMethod, setCalibMethod] = useState<'two-point' | 'direct'>('two-point');
+  const [calibConfirmed, setCalibConfirmed] = useState<boolean>(false);
+  const [calibrating, setCalibrating] = useState<boolean>(false);
+  const [calibError, setCalibError] = useState<string | null>(null);
+
+  const handleModalImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (calibMethod !== 'two-point') return;
+    const img = e.currentTarget;
+    const rect = img.getBoundingClientRect();
+    const point = mapRenderedToOriginalCoords({
+      clickX: e.clientX - rect.left,
+      clickY: e.clientY - rect.top,
+      elemWidth: rect.width,
+      elemHeight: rect.height,
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight,
+      objectFit: 'contain',
+    });
+
+    if (!point) return;
+
+    if (!calibPoint1 || (calibPoint1 && calibPoint2)) {
+      setCalibPoint1(point);
+      setCalibPoint2(null);
+    } else {
+      setCalibPoint2(point);
+    }
+  };
+
+  const modalPixelDistance = calibPoint1 && calibPoint2
+    ? Math.hypot(calibPoint2.x - calibPoint1.x, calibPoint2.y - calibPoint1.y)
+    : null;
+  const modalCalculatedScale = modalPixelDistance && parseFloat(calibRefDist) > 0
+    ? Number((modalPixelDistance / parseFloat(calibRefDist)).toFixed(2))
+    : null;
+
+  const handleApplyCalibration = async () => {
+    if (!activeAssessment) return;
+    setCalibError(null);
+    setCalibrating(true);
+    try {
+      if (!calibConfirmed) {
+        throw new Error('Please confirm that the reference measurement is verified on the wound plane.');
+      }
+      if (calibMethod === 'two-point') {
+        if (!calibPoint1 || !calibPoint2) {
+          throw new Error('Please click two points on the image corresponding to the known reference distance.');
+        }
+        const refDist = parseFloat(calibRefDist);
+        if (isNaN(refDist) || refDist <= 0) {
+          throw new Error('Reference distance must be a positive number in cm.');
+        }
+        await calibrateAssessment(activeAssessment.id, {
+          point1: [calibPoint1.x, calibPoint1.y],
+          point2: [calibPoint2.x, calibPoint2.y],
+          reference_distance_cm: refDist,
+          notes: 'Clinician two-point reference calibration'
+        });
+      } else {
+        const scale = parseFloat(calibDirectScale);
+        if (isNaN(scale) || scale <= 0) {
+          throw new Error('Please enter a valid positive scale in px/cm.');
+        }
+        await calibrateAssessment(activeAssessment.id, {
+          pixels_per_cm: scale,
+          notes: 'Clinician direct reference scale calibration'
+        });
+      }
+      setShowCalibrateModal(false);
+      setCalibPoint1(null);
+      setCalibPoint2(null);
+      setCalibConfirmed(false);
+    } catch (err: any) {
+      setCalibError(err.message || 'Failed to calibrate assessment.');
+    } finally {
+      setCalibrating(false);
+    }
+  };
 
   const handleAnalyzeTissue = async () => {
     if (!activeAssessment || analyzingTissue) return;
@@ -228,6 +314,11 @@ export const AssessmentDetail: React.FC = () => {
                         <span className="text-xs font-normal text-slate-500">Not available</span>
                       )}
                     </div>
+                    {activeAssessment.measurements?.total_area_pixels != null && (
+                      <div className="text-[10px] text-slate-400 mt-0.5 font-mono">
+                        {Math.round(activeAssessment.measurements.total_area_pixels)} px²
+                      </div>
+                    )}
                   </div>
                   <div className="bg-slate-50 border border-slate-100 rounded-md p-2.5 text-center flex flex-col justify-center">
                     <div className="text-[10px] text-slate-500 font-semibold uppercase">Dimensions</div>
@@ -254,22 +345,58 @@ export const AssessmentDetail: React.FC = () => {
                 </div>
 
                 {/* CALIBRATION STATUS BADGE */}
-                {activeAssessment.aiResult.calibration?.source === 'demo' ? (
-                  <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 flex items-start gap-1.5 leading-snug">
-                    <span className="font-semibold text-amber-600">⚠ Demo Scale ({activeAssessment.aiResult.calibration.pixels_per_cm || 25} px/cm):</span>
-                    <span>Physical calibration marker was not detected. Values shown are demonstration estimates.</span>
-                  </div>
-                ) : activeAssessment.aiResult.calibration?.source === 'manual' ? (
-                  <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 flex items-start gap-1.5 leading-snug">
-                    <span className="font-semibold text-amber-600">⚠ Manual Demonstration Scale:</span>
-                    <span>Scale was entered manually and not derived from a photograph marker.</span>
-                  </div>
-                ) : activeAssessment.aiResult.calibration?.source === 'automatic' ? (
+                {activeAssessment.aiResult.calibration?.source === 'automatic' && activeAssessment.aiResult.calibration?.detected ? (
                   <div className="text-[11px] text-teal-800 bg-teal-50 border border-teal-200 rounded p-2 flex items-center justify-between">
                     <span className="font-semibold">✓ Automatic Physical Calibration</span>
-                    <span>{activeAssessment.aiResult.calibration.pixels_per_cm} px/cm</span>
+                    <span className="font-mono">{activeAssessment.aiResult.calibration.pixels_per_cm} px/cm</span>
                   </div>
-                ) : null}
+                ) : activeAssessment.aiResult.calibration?.source === 'manual' && activeAssessment.aiResult.calibration?.verified ? (
+                  <div className="text-[11px] text-teal-800 bg-teal-50 border border-teal-200 rounded p-2 flex items-center justify-between">
+                    <div>
+                      <span className="font-semibold">✓ Clinician Manual Calibration</span>
+                      {activeAssessment.aiResult.calibration.reference_distance_cm && (
+                        <span className="text-slate-500 ml-1">({activeAssessment.aiResult.calibration.reference_distance_cm} cm ref)</span>
+                      )}
+                    </div>
+                    <span className="font-mono">{activeAssessment.aiResult.calibration.pixels_per_cm} px/cm</span>
+                  </div>
+                ) : activeAssessment.aiResult.calibration?.source === 'demo' ? (
+                  <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2.5 space-y-2">
+                    <div className="flex items-start gap-1.5 leading-snug">
+                      <span className="font-semibold text-amber-600">⚠ Demo Scale ({activeAssessment.aiResult.calibration.pixels_per_cm || 25} px/cm):</span>
+                      <span>Physical calibration marker was not detected. Values shown are demonstration estimates.</span>
+                    </div>
+                    <div className="flex justify-end pt-1">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setShowCalibrateModal(true)}
+                        className="text-xs py-1 px-2.5 bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Ruler className="w-3.5 h-3.5 text-amber-700" />
+                        Calibrate with known reference
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2.5 space-y-2">
+                    <div className="flex items-start gap-1.5 leading-snug">
+                      <span className="font-semibold text-amber-600">⚠ Physical Calibration Unavailable:</span>
+                      <span>Reference marker was not detected. Physical area and dimensions cannot be established automatically.</span>
+                    </div>
+                    <div className="flex justify-end pt-1">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setShowCalibrateModal(true)}
+                        className="text-xs py-1 px-2.5 bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Ruler className="w-3.5 h-3.5 text-amber-700" />
+                        Calibrate with known reference
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 {/* TEXT ANALYSIS */}
                 <div className="text-xs text-slate-655 bg-slate-50/50 border border-slate-200 rounded-md p-3 space-y-2">
@@ -416,6 +543,172 @@ export const AssessmentDetail: React.FC = () => {
           </Card>
         </div>
       </div>
+
+      {/* MANUAL CALIBRATION MODAL */}
+      {showCalibrateModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-4 py-3 border-b border-slate-100 bg-slate-50">
+              <div className="flex items-center gap-2">
+                <Ruler className="w-4 h-4 text-teal-700" />
+                <h3 className="text-sm font-bold text-slate-800 m-0">Clinician Physical Calibration</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCalibrateModal(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-4 text-xs">
+              {/* Method Tabs */}
+              <div className="flex border-b border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setCalibMethod('two-point')}
+                  className={`py-1.5 px-4 font-semibold border-b-2 cursor-pointer ${calibMethod === 'two-point' ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-500'}`}
+                >
+                  Two-Point Reference on Image
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCalibMethod('direct')}
+                  className={`py-1.5 px-4 font-semibold border-b-2 cursor-pointer ${calibMethod === 'direct' ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-500'}`}
+                >
+                  Direct Scale Entry
+                </button>
+              </div>
+
+              {calibMethod === 'two-point' ? (
+                <div className="space-y-3">
+                  <p className="text-slate-600">
+                    Click two points on the photograph corresponding to a known physical distance (such as tick marks on a ruler or reference marker).
+                  </p>
+
+                  <div className="relative border border-slate-200 rounded-md overflow-hidden bg-slate-900 flex justify-center max-h-[280px]">
+                    <img
+                      src={activeAssessment.imageUrl || activeAssessment.analyzedImageUrl}
+                      alt="Calibration target"
+                      onClick={handleModalImageClick}
+                      className="max-h-[280px] object-contain cursor-crosshair select-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-2.5 rounded border border-slate-200">
+                    <div>
+                      <span className="font-semibold text-slate-700 block mb-0.5">Point 1 (px):</span>
+                      <span className="font-mono text-slate-600">
+                        {calibPoint1 ? `(${calibPoint1.x}, ${calibPoint1.y})` : 'Click on image to set Point 1'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="font-semibold text-slate-700 block mb-0.5">Point 2 (px):</span>
+                      <span className="font-mono text-slate-600">
+                        {calibPoint2 ? `(${calibPoint2.x}, ${calibPoint2.y})` : 'Click on image to set Point 2'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <label className="font-semibold text-slate-700">Known reference distance:</label>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        value={calibRefDist}
+                        onChange={(e) => setCalibRefDist(e.target.value)}
+                        className="border border-slate-300 rounded px-2 py-1 w-20 text-xs"
+                      />
+                      <span className="text-slate-600 font-medium">cm</span>
+                    </div>
+                  </div>
+
+                  {modalCalculatedScale && (
+                    <div className="bg-teal-50 border border-teal-200 text-teal-900 p-2.5 rounded flex justify-between items-center">
+                      <span>Calculated Scale:</span>
+                      <span className="font-bold font-mono text-sm">{modalCalculatedScale} px/cm</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-slate-600">
+                    Enter a verified physical scale in pixels per centimeter derived from a physical reference object in the same plane as the wound.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <label className="font-semibold text-slate-700">Physical Scale:</label>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        placeholder="e.g. 25.0"
+                        value={calibDirectScale}
+                        onChange={(e) => setCalibDirectScale(e.target.value)}
+                        className="border border-slate-300 rounded px-2 py-1 w-28 text-xs"
+                      />
+                      <span className="text-slate-600 font-medium">px/cm</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Clinical Advisory Notice */}
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded text-[11px] space-y-1">
+                <div className="font-semibold flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-700" />
+                  Clinical Calibration Advisory
+                </div>
+                <p>
+                  Perspective distortion, camera angles, and reference objects placed outside the wound's physical plane introduce measurement error. Ensure the reference points lie directly on the wound plane.
+                </p>
+              </div>
+
+              {/* Confirmation checkbox */}
+              <label className="flex items-start gap-2 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={calibConfirmed}
+                  onChange={(e) => setCalibConfirmed(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="text-slate-700 text-xs font-medium">
+                  I confirm that this calibration represents a verified physical distance on the wound plane.
+                </span>
+              </label>
+
+              {calibError && (
+                <div className="text-red-600 text-xs bg-red-50 p-2 rounded border border-red-200">
+                  {calibError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-slate-100 bg-slate-50">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowCalibrateModal(false)}
+                disabled={calibrating}
+                className="cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleApplyCalibration}
+                disabled={calibrating || !calibConfirmed || (calibMethod === 'two-point' && (!calibPoint1 || !calibPoint2))}
+                className="bg-teal-700 text-white hover:bg-teal-800 cursor-pointer disabled:opacity-50"
+              >
+                {calibrating ? 'Applying...' : 'Apply Calibration'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -86,11 +86,51 @@ const prisma = new PrismaClient({
   adapter,
 });
 
-// Health check
+// Health check (lightweight liveness ping)
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
     message: "Wound Healing API is running",
+  });
+});
+
+// Readiness check (dependency readiness without leaking secrets)
+app.get("/api/health/ready", async (req, res) => {
+  const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+  const checks: Record<string, string> = {
+    database: "unknown",
+    ai_service: "unknown",
+  };
+  let isReady = true;
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    checks.database = "healthy";
+  } catch (err: any) {
+    checks.database = "unhealthy";
+    isReady = false;
+  }
+
+  try {
+    const aiRes = await fetch(`${FASTAPI_URL}/health`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (aiRes.ok) {
+      checks.ai_service = "healthy";
+    } else {
+      checks.ai_service = `degraded (${aiRes.status})`;
+      isReady = false;
+    }
+  } catch (err: any) {
+    checks.ai_service = "unreachable";
+    isReady = false;
+  }
+
+  const statusCode = isReady ? 200 : 503;
+  res.status(statusCode).json({
+    status: isReady ? "ok" : "degraded",
+    ready: isReady,
+    checks,
   });
 });
 
@@ -259,40 +299,103 @@ app.get("/api/patients", async (req, res) => {
   }
 });
 
+function generatePatientCode(): string {
+  const randomNum = crypto.randomInt(100000, 999999);
+  return `PT-${randomNum}`;
+}
+
 app.post("/api/patients", async (req, res) => {
   try {
     const { patientCode, name, age } = req.body;
 
-    if (!patientCode || !name) {
+    if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({
         status: "error",
         error: "INVALID_INPUT",
-        message: "patientCode and name are required."
+        message: "Patient name is required."
       });
     }
 
-    const patient = await prisma.patient.create({
-      data: {
-        patientCode,
-        name,
-        age: age ? Number(age) : null
-      }
-    });
+    const trimmedName = name.trim();
+    const parsedAge = age !== undefined && age !== null && age !== "" ? Number(age) : null;
+    if (parsedAge !== null && (isNaN(parsedAge) || parsedAge < 0 || parsedAge > 150)) {
+      return res.status(400).json({
+        status: "error",
+        error: "INVALID_INPUT",
+        message: "Age must be a valid number between 0 and 150."
+      });
+    }
 
-    res.status(201).json({
+    const isCustomCodeProvided = typeof patientCode === "string" && patientCode.trim().length > 0;
+
+    if (isCustomCodeProvided) {
+      const cleanCode = patientCode.trim().toUpperCase();
+      try {
+        const patient = await prisma.patient.create({
+          data: {
+            patientCode: cleanCode,
+            name: trimmedName,
+            age: parsedAge
+          }
+        });
+
+        return res.status(201).json({
+          status: "ok",
+          patient
+        });
+      } catch (err: any) {
+        if (err && typeof err === "object" && (("code" in err && err.code === "P2002") || String(err).includes("Unique constraint failed"))) {
+          return res.status(409).json({
+            status: "error",
+            error: "PATIENT_CODE_EXISTS",
+            message: "A patient with this code already exists."
+          });
+        }
+        throw err;
+      }
+    }
+
+    // Auto-generate unique patient code with retry loop to handle collisions safely
+    let patient;
+    let attempts = 0;
+    const maxAttempts = 5;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      const generatedCode = generatePatientCode();
+
+      try {
+        patient = await prisma.patient.create({
+          data: {
+            patientCode: generatedCode,
+            name: trimmedName,
+            age: parsedAge
+          }
+        });
+        break;
+      } catch (err: any) {
+        const isUniqueError = err && typeof err === "object" && (("code" in err && err.code === "P2002") || String(err).includes("Unique constraint failed"));
+        if (isUniqueError && attempts < maxAttempts) {
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (!patient) {
+      return res.status(500).json({
+        status: "error",
+        error: "GENERATION_FAILED",
+        message: "Failed to generate a unique patient code. Please try again."
+      });
+    }
+
+    return res.status(201).json({
       status: "ok",
       patient
     });
   } catch (error) {
     console.error("Patient creation error:", error);
-    if (error && typeof error === 'object' && ('code' in error && error.code === 'P2002' || String(error).includes('Unique constraint failed'))) {
-      return res.status(409).json({
-        status: "error",
-        error: "PATIENT_CODE_EXISTS",
-        message: "A patient with this code already exists."
-      });
-    }
-
     res.status(500).json({
       status: "error",
       error: "INTERNAL_ERROR",
@@ -306,11 +409,11 @@ app.post("/api/wounds", async (req, res) => {
   try {
     const { patientId, location, description } = req.body;
 
-    if (!patientId || !location) {
+    if (!patientId) {
       return res.status(400).json({
         status: "error",
         error: "INVALID_INPUT",
-        message: "patientId and location are required."
+        message: "patientId is required."
       });
     }
 
@@ -335,10 +438,14 @@ app.post("/api/wounds", async (req, res) => {
       });
     }
 
+    const finalLocation = (location && typeof location === 'string' && location.trim().length > 0)
+      ? location.trim()
+      : "General Wound Site";
+
     const wound = await prisma.wound.create({
       data: {
         patientId: patient.id,
-        location,
+        location: finalLocation,
         description: description || null
       }
     });
@@ -408,34 +515,61 @@ app.get("/api/wounds", async (req, res) => {
 app.get("/api/assessments", async (req, res) => {
   try {
     const woundIdParam = req.query.woundId;
-    if (!woundIdParam) {
+    const patientIdParam = req.query.patientId;
+
+    if (!woundIdParam && !patientIdParam) {
       return res.status(400).json({
         status: "error",
         error: "INVALID_INPUT",
-        message: "woundId query parameter is required."
+        message: "woundId or patientId query parameter is required."
       });
     }
 
-    const woundId = Number(woundIdParam);
-    if (isNaN(woundId)) {
-      return res.status(400).json({
-        status: "error",
-        error: "INVALID_WOUND_ID",
-        message: "Wound ID must be a number."
-      });
-    }
+    let whereClause: any = {};
 
-    const woundExists = await prisma.wound.findUnique({ where: { id: woundId } });
-    if (!woundExists) {
-      return res.status(404).json({
-        status: "error",
-        error: "WOUND_NOT_FOUND",
-        message: "The referenced wound does not exist."
-      });
+    if (woundIdParam) {
+      const woundId = Number(woundIdParam);
+      if (isNaN(woundId)) {
+        return res.status(400).json({
+          status: "error",
+          error: "INVALID_WOUND_ID",
+          message: "Wound ID must be a number."
+        });
+      }
+
+      const woundExists = await prisma.wound.findUnique({ where: { id: woundId } });
+      if (!woundExists) {
+        return res.status(404).json({
+          status: "error",
+          error: "WOUND_NOT_FOUND",
+          message: "The referenced wound does not exist."
+        });
+      }
+      whereClause.woundId = woundId;
+    } else if (patientIdParam) {
+      const patientId = Number(patientIdParam);
+      if (isNaN(patientId)) {
+        return res.status(400).json({
+          status: "error",
+          error: "INVALID_PATIENT_ID",
+          message: "Patient ID must be a number."
+        });
+      }
+
+      const patientExists = await prisma.patient.findUnique({ where: { id: patientId } });
+      if (!patientExists) {
+        return res.status(404).json({
+          status: "error",
+          error: "PATIENT_NOT_FOUND",
+          message: "The referenced patient does not exist."
+        });
+      }
+      whereClause.wound = { patientId };
     }
 
     const assessments = await prisma.assessment.findMany({
-      where: { woundId },
+      where: whereClause,
+      include: { wound: true },
       orderBy: { assessmentDate: 'desc' }
     });
 
@@ -520,6 +654,202 @@ app.patch("/api/assessments/:id/verify", requireRoles(["DOCTOR", "ADMIN"]), asyn
   } catch (error) {
     console.error("Verification error:", error);
     res.status(500).json({ status: "error", error: "INTERNAL_ERROR", message: "Failed to verify assessment" });
+  }
+});
+
+app.post("/api/assessments/:id/calibrate", requireRoles(["DOCTOR", "ADMIN"]), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id) || id <= 0) {
+      return res.status(400).json({ status: "error", error: "INVALID_INPUT", message: "Invalid assessment ID" });
+    }
+
+    const { pixels_per_cm, reference_distance_cm, point1, point2, notes } = req.body;
+
+    let computedPxPerCm: number | null = null;
+    let validRefDist: number | null = null;
+    let p1Coords: [number, number] | null = null;
+    let p2Coords: [number, number] | null = null;
+
+    // Option A: Two-point calibration
+    if (point1 != null && point2 != null) {
+      if (reference_distance_cm == null) {
+        return res.status(400).json({
+          status: "error",
+          error: "INVALID_INPUT",
+          message: "reference_distance_cm is required when calibrating with two points"
+        });
+      }
+
+      const refDist = Number(reference_distance_cm);
+      if (isNaN(refDist) || !isFinite(refDist) || refDist <= 0) {
+        return res.status(400).json({
+          status: "error",
+          error: "INVALID_INPUT",
+          message: "reference_distance_cm must be a positive, finite number"
+        });
+      }
+
+      const getCoord = (p: any): [number, number] | null => {
+        if (Array.isArray(p) && p.length >= 2) {
+          const x = Number(p[0]);
+          const y = Number(p[1]);
+          if (!isNaN(x) && isFinite(x) && !isNaN(y) && isFinite(y)) return [x, y];
+        } else if (p && typeof p === "object") {
+          const x = Number(p.x);
+          const y = Number(p.y);
+          if (!isNaN(x) && isFinite(x) && !isNaN(y) && isFinite(y)) return [x, y];
+        }
+        return null;
+      };
+
+      p1Coords = getCoord(point1);
+      p2Coords = getCoord(point2);
+
+      if (!p1Coords || !p2Coords) {
+        return res.status(400).json({
+          status: "error",
+          error: "INVALID_INPUT",
+          message: "point1 and point2 must contain valid finite numeric coordinates [x, y] or {x, y}"
+        });
+      }
+
+      const dx = p2Coords[0] - p1Coords[0];
+      const dy = p2Coords[1] - p1Coords[1];
+      const pixelDistance = Math.hypot(dx, dy);
+
+      if (pixelDistance < 1.0) {
+        return res.status(400).json({
+          status: "error",
+          error: "INVALID_INPUT",
+          message: "Calibration points must be distinct (distance >= 1.0 px)"
+        });
+      }
+
+      computedPxPerCm = pixelDistance / refDist;
+      validRefDist = refDist;
+    } else if (pixels_per_cm != null) {
+      // Option B: Direct scale entry
+      const px = Number(pixels_per_cm);
+      if (isNaN(px) || !isFinite(px) || px <= 0) {
+        return res.status(400).json({
+          status: "error",
+          error: "INVALID_INPUT",
+          message: "pixels_per_cm must be a positive, finite number"
+        });
+      }
+      computedPxPerCm = px;
+      if (reference_distance_cm != null) {
+        const refDist = Number(reference_distance_cm);
+        if (!isNaN(refDist) && isFinite(refDist) && refDist > 0) {
+          validRefDist = refDist;
+        }
+      }
+    } else {
+      return res.status(400).json({
+        status: "error",
+        error: "INVALID_INPUT",
+        message: "Either two points with reference_distance_cm or pixels_per_cm must be supplied"
+      });
+    }
+
+    if (!computedPxPerCm || isNaN(computedPxPerCm) || !isFinite(computedPxPerCm) || computedPxPerCm <= 0) {
+      return res.status(400).json({
+        status: "error",
+        error: "INVALID_INPUT",
+        message: "Calculated scale is invalid or non-positive"
+      });
+    }
+
+    const assessment = await prisma.assessment.findUnique({ where: { id } });
+    if (!assessment) {
+      return res.status(404).json({
+        status: "error",
+        error: "NOT_FOUND",
+        message: "Assessment not found"
+      });
+    }
+
+    const scale = Number(computedPxPerCm.toFixed(3));
+    const rawMeasurements = (assessment.measurements as any) || {};
+    const m = { ...rawMeasurements };
+
+    const totalAreaPx = typeof m.total_area_pixels === "number" ? m.total_area_pixels : null;
+    const totalPeriPx = typeof m.total_perimeter_pixels === "number" ? m.total_perimeter_pixels : null;
+
+    // Proper dimensional conversion:
+    // Area scales quadratically: cm2 = px2 / scale^2
+    // Linear measurements scale linearly: cm = px / scale
+    const scaleSq = scale * scale;
+    const totalAreaCm2 = totalAreaPx !== null ? Number((totalAreaPx / scaleSq).toFixed(3)) : null;
+    const totalPeriCm = totalPeriPx !== null ? Number((totalPeriPx / scale).toFixed(3)) : null;
+
+    if (Array.isArray(m.wounds)) {
+      m.wounds = m.wounds.map((w: any) => {
+        const wAreaPx = typeof w.area_pixels === "number" ? w.area_pixels : null;
+        const wPeriPx = typeof w.perimeter_pixels === "number" ? w.perimeter_pixels : null;
+        const wWidthPx = typeof w.width_pixels === "number" ? w.width_pixels : null;
+        const wHeightPx = typeof w.height_pixels === "number" ? w.height_pixels : null;
+        return {
+          ...w,
+          area_cm2: wAreaPx !== null ? Number((wAreaPx / scaleSq).toFixed(3)) : null,
+          perimeter_cm: wPeriPx !== null ? Number((wPeriPx / scale).toFixed(3)) : null,
+          width_cm: wWidthPx !== null ? Number((wWidthPx / scale).toFixed(3)) : null,
+          length_cm: wHeightPx !== null ? Number((wHeightPx / scale).toFixed(3)) : null,
+        };
+      });
+    }
+
+    const user = (req as any).user;
+    const calibratedBy = user?.id || user?.role || "CLINICIAN";
+
+    m.total_area_cm2 = totalAreaCm2;
+    m.total_perimeter_cm = totalPeriCm;
+    m.physical_measurement_available = true;
+    m.calibration = {
+      source: "manual",
+      detected: false,
+      verified: true,
+      pixels_per_cm: scale,
+      reference_distance_cm: validRefDist,
+      point1: p1Coords,
+      point2: p2Coords,
+      calibratedAt: new Date().toISOString(),
+      calibratedBy,
+      label: "Clinician Manual Calibration",
+      reason: "CLINICIAN_MANUAL_CALIBRATION",
+      notes: notes || "Clinician confirmed physical scale reference."
+    };
+
+    const updated = await prisma.assessment.update({
+      where: { id },
+      data: {
+        measurements: m
+      }
+    });
+
+    console.log(JSON.stringify({
+      type: "AUDIT_LOG",
+      action: "ASSESSMENT_CALIBRATED",
+      assessmentId: id,
+      calibratedBy,
+      pixels_per_cm: scale,
+      reference_distance_cm: validRefDist,
+      timestamp: new Date().toISOString()
+    }));
+
+    return res.json({
+      status: "ok",
+      assessment: updated,
+      calibration: m.calibration
+    });
+  } catch (error) {
+    console.error("Manual calibration error:", error);
+    return res.status(500).json({
+      status: "error",
+      error: "INTERNAL_ERROR",
+      message: "Failed to calibrate assessment"
+    });
   }
 });
 
@@ -667,6 +997,44 @@ app.get("/api/reports/:assessmentId", async (req, res) => {
       }
     }
 
+    // Calibration safety helper for longitudinal comparisons
+    const isAssessmentCalibrationVerified = (ass: any): boolean => {
+      if (!ass) return false;
+      if (ass.verified === true && ass.verifiedResult != null) {
+        const vResult = ass.verifiedResult as any;
+        if (vResult?.measurements?.total_area_cm2 != null || vResult?.measurements?.areaCm2 != null) {
+          return true;
+        }
+      }
+
+      const m = ass.measurements as any;
+      if (!m) return false;
+      if (m.physical_measurement_available === false) return false;
+
+      const cal = m.calibration;
+      if (!cal) return false;
+
+      if (cal.source === "demo" || cal.verified === false) {
+        return false;
+      }
+      if (cal.source === "automatic" && (cal.detected === true || (cal.confidence != null && cal.confidence > 0))) {
+        return true;
+      }
+      if (cal.source === "manual" && cal.verified === true && typeof cal.pixels_per_cm === "number" && cal.pixels_per_cm > 0) {
+        return true;
+      }
+
+      return false;
+    };
+
+    const currentCalibrationVerified = isAssessmentCalibrationVerified(assessment);
+    const prevAssModel = previousAssessment != null
+      ? allWoundAssessments.find((a) => a.id === previousAssessment?.id)
+      : null;
+    const prevCalibrationVerified = prevAssModel != null
+      ? isAssessmentCalibrationVerified(prevAssModel)
+      : false;
+
     // Calculate progress
     let areaChangePct: number | null = null;
     let progressStatus:
@@ -674,23 +1042,28 @@ app.get("/api/reports/:assessmentId", async (req, res) => {
       | "worsening"
       | "stable"
       | "insufficient_data" = "insufficient_data";
+    let calibrationNotice: string | null = null;
+    if (previousAssessment != null) {
+      if (!currentCalibrationVerified || !prevCalibrationVerified) {
+        areaChangePct = null;
+        progressStatus = "insufficient_data";
+        calibrationNotice = "Physical area comparison suppressed: One or more assessments lack verified reference marker calibration.";
+      } else if (
+        currentArea != null &&
+        previousAssessment.area_cm2 > 0
+      ) {
+        areaChangePct =
+          ((currentArea - previousAssessment.area_cm2) /
+            previousAssessment.area_cm2) *
+          100;
 
-    if (
-      previousAssessment != null &&
-      currentArea != null &&
-      previousAssessment.area_cm2 > 0
-    ) {
-      areaChangePct =
-        ((currentArea - previousAssessment.area_cm2) /
-          previousAssessment.area_cm2) *
-        100;
-
-      if (areaChangePct < -1) {
-        progressStatus = "improving"; // Area decreased
-      } else if (areaChangePct > 1) {
-        progressStatus = "worsening"; // Area increased
-      } else {
-        progressStatus = "stable"; // Area within ±1%
+        if (areaChangePct < -1) {
+          progressStatus = "improving"; // Area decreased
+        } else if (areaChangePct > 1) {
+          progressStatus = "worsening"; // Area increased
+        } else {
+          progressStatus = "stable"; // Area within ±1%
+        }
       }
     }
 
@@ -725,6 +1098,8 @@ app.get("/api/reports/:assessmentId", async (req, res) => {
         currentArea_cm2: currentArea,
         areaChangePct,
         status: progressStatus,
+        calibrationNotice,
+        calibrationVerified: currentCalibrationVerified && (previousAssessment == null || prevCalibrationVerified),
       },
     };
 
@@ -856,11 +1231,14 @@ app.post("/api/upload", uploadLimiter, upload.single("image"), async (req, res) 
       });
     }
     
-    if (!req.body.woundId || isNaN(Number(req.body.woundId))) {
+    const hasWoundId = req.body.woundId !== undefined && req.body.woundId !== null && req.body.woundId !== "" && !isNaN(Number(req.body.woundId));
+    const hasPatientId = req.body.patientId !== undefined && req.body.patientId !== null && req.body.patientId !== "" && !isNaN(Number(req.body.patientId));
+
+    if (!hasWoundId && !hasPatientId) {
       return res.status(400).json({
         status: "error",
         error: "INVALID_WOUND",
-        message: "A valid numeric wound ID is required.",
+        message: "A valid numeric wound ID or patient ID is required.",
       });
     }
 
@@ -872,15 +1250,71 @@ app.post("/api/upload", uploadLimiter, upload.single("image"), async (req, res) 
 - byte length: ${req.file.buffer.length}
 - SHA-256 hash of req.file.buffer: ${sha256Hash}\n`);
 
-    const woundId = Number(req.body.woundId);
-    const woundExists = await prisma.wound.findUnique({ where: { id: woundId } });
-    
-    if (!woundExists) {
-      return res.status(404).json({
-        status: "error",
-        error: "WOUND_NOT_FOUND",
-        message: "The selected wound does not exist.",
-      });
+    let wound = null;
+    let woundId: number;
+
+    if (hasWoundId) {
+      woundId = Number(req.body.woundId);
+      wound = await prisma.wound.findUnique({ where: { id: woundId } });
+
+      if (!wound) {
+        return res.status(404).json({
+          status: "error",
+          error: "WOUND_NOT_FOUND",
+          message: "The selected wound does not exist.",
+        });
+      }
+    } else {
+      const patientId = Number(req.body.patientId);
+      const patient = await prisma.patient.findUnique({ where: { id: patientId } });
+
+      if (!patient) {
+        return res.status(404).json({
+          status: "error",
+          error: "PATIENT_NOT_FOUND",
+          message: "The referenced patient does not exist.",
+        });
+      }
+
+      const locationStr = typeof req.body.location === 'string' && req.body.location.trim() ? req.body.location.trim() : null;
+
+      if (locationStr) {
+        const existingWound = await prisma.wound.findFirst({
+          where: {
+            patientId: patient.id,
+            location: { equals: locationStr, mode: 'insensitive' }
+          }
+        });
+        if (existingWound) {
+          wound = existingWound;
+        } else {
+          wound = await prisma.wound.create({
+            data: {
+              patientId: patient.id,
+              location: locationStr,
+              description: req.body.description || null
+            }
+          });
+        }
+      } else {
+        const existingWounds = await prisma.wound.findMany({
+          where: { patientId: patient.id },
+          orderBy: { createdAt: 'desc' }
+        });
+
+        if (existingWounds.length > 0) {
+          wound = existingWounds[0];
+        } else {
+          wound = await prisma.wound.create({
+            data: {
+              patientId: patient.id,
+              location: "General Wound Site",
+              description: req.body.description || null
+            }
+          });
+        }
+      }
+      woundId = wound.id;
     }
     console.log("[UPLOAD] req.body:", req.body);
 
@@ -911,7 +1345,15 @@ app.post("/api/upload", uploadLimiter, upload.single("image"), async (req, res) 
     formData.append("file", blob, req.file.originalname);
     
     if (req.body.pixels_per_cm) {
-        formData.append("pixels_per_cm", req.body.pixels_per_cm);
+        const parsedPx = parseFloat(req.body.pixels_per_cm);
+        if (isNaN(parsedPx) || !isFinite(parsedPx) || parsedPx <= 0) {
+            return res.status(400).json({
+                status: "error",
+                error: "INVALID_CALIBRATION",
+                message: "pixels_per_cm must be a positive finite number"
+            });
+        }
+        formData.append("pixels_per_cm", String(parsedPx));
     }
 
     let aiAnalysis = null;
@@ -996,6 +1438,8 @@ app.post("/api/upload", uploadLimiter, upload.single("image"), async (req, res) 
                 wound_count: aiAnalysis.wound_count,
                 total_area_cm2: aiAnalysis.total_area_cm2,
                 total_perimeter_cm: aiAnalysis.total_perimeter_cm,
+                total_area_pixels: aiAnalysis.total_area_pixels,
+                total_perimeter_pixels: aiAnalysis.total_perimeter_pixels,
                 overall_color_hex: aiAnalysis.overall_color_hex,
                 color_classification: aiAnalysis.overall_color_classification,
                 wounds: aiAnalysis.wounds,
@@ -1015,8 +1459,22 @@ app.post("/api/upload", uploadLimiter, upload.single("image"), async (req, res) 
                 woundDetected: aiAnalysis?.wound_detected ?? null,
                 status: "COMPLETED",
                 notes: aiAnalysis?.message || "Analysis complete"
+            },
+            include: {
+                wound: true
             }
         });
+
+        if (aiAnalysis?.wound_classification && (!wound.description || wound.description === 'Unspecified')) {
+          try {
+            wound = await prisma.wound.update({
+              where: { id: woundId },
+              data: { description: aiAnalysis.wound_classification }
+            });
+          } catch (e) {
+            // non-fatal description update
+          }
+        }
 
     } catch (error: any) {
         console.error("[UPLOAD] AI Analysis Error Stage:", error);
@@ -1043,7 +1501,8 @@ app.post("/api/upload", uploadLimiter, upload.single("image"), async (req, res) 
       contentType: req.file.mimetype,
       aiAnalysis,
       aiError,
-      assessment: createdAssessment
+      assessment: createdAssessment,
+      wound
     });
   } catch (error) {
     console.error("[UPLOAD] Outer Stage error:", error);

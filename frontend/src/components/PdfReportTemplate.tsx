@@ -133,6 +133,15 @@ export const PdfReportTemplate: React.FC<PdfReportTemplateProps> = ({ reportData
                       <span className="font-bold" style={{ color: '#d97706' }}>WARNING: </span> A physical calibration marker was not detected. The displayed physical measurements were calculated using the system's configured demonstration scale and are intended for testing/demo purposes only.
                     </div>
                   </>
+                ) : calibration.source === 'manual' && calibration.verified ? (
+                  <>
+                    <div className="flex justify-between"><span className="font-semibold">Calibration source:</span> <span className="font-bold" style={{ color: '#0f524d' }}>Clinician Manual Calibration</span></div>
+                    <div className="flex justify-between"><span className="font-semibold">Scale:</span> <span>{calibration.pixels_per_cm} px/cm</span></div>
+                    {calibration.reference_distance_cm && (
+                      <div className="flex justify-between"><span className="font-semibold">Reference distance:</span> <span>{calibration.reference_distance_cm} cm</span></div>
+                    )}
+                    <div className="flex justify-between"><span className="font-semibold">Verification:</span> <span className="font-semibold" style={{ color: '#0f524d' }}>Verified with known physical reference</span></div>
+                  </>
                 ) : (
                   <>
                     <div className="flex justify-between"><span className="font-semibold">Calibration source:</span> <span className="font-bold" style={{ color: '#0f172a' }}>Manual — Demonstration</span></div>

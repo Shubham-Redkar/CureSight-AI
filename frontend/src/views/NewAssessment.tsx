@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useWounds } from '../context/WoundContext';
 import { Card, Button, Select } from '../components/ui';
-import { Upload, RotateCcw, Sparkles, AlertCircle, Info } from 'lucide-react';
+import { Upload, RotateCcw, Sparkles, Info } from 'lucide-react';
 
 export const NewAssessment: React.FC = () => {
   const navigate = useNavigate();
@@ -15,6 +15,7 @@ export const NewAssessment: React.FC = () => {
 
   const [selectedPatientId, setSelectedPatientId] = useState<string>(initialPatientId);
   const [selectedWoundId, setSelectedWoundId] = useState<string>(initialWoundId);
+  const [optionalLocation, setOptionalLocation] = useState<string>('');
 
   // Local UI states
   const [dragActive, setDragActive] = useState(false);
@@ -73,7 +74,7 @@ export const NewAssessment: React.FC = () => {
   };
 
   const handleStartAnalysis = async () => {
-    if (!selectedWoundId || !imageFile) return;
+    if (!activePatient || !imageFile) return;
 
     setIsLoading(true);
     setError(null);
@@ -86,7 +87,15 @@ export const NewAssessment: React.FC = () => {
       const res = await fetch(imageFile);
       const rawBlob = await res.blob();
       
-      const newAss = await runAnalysis(selectedWoundId, rawBlob, calibrationValue);
+      // Safely parse wound ID: only use it when it resolves to a positive integer
+      const parsedWoundId = selectedWoundId ? parseInt(selectedWoundId, 10) : NaN;
+      const hasValidWoundId = !isNaN(parsedWoundId) && parsedWoundId > 0;
+
+      const target = hasValidWoundId
+        ? { woundId: parsedWoundId }
+        : { patientId: activePatient.id, location: optionalLocation.trim() || undefined };
+
+      const newAss = await runAnalysis(target, rawBlob, calibrationValue);
       // Navigate to AssessmentDetail
       navigate(`/assessments/${newAss.id}`);
     } catch (err: any) {
@@ -107,53 +116,87 @@ export const NewAssessment: React.FC = () => {
         </p>
       </div>
 
-      {!activePatient || !activeWound ? (
-        <Card title="Patient & Anatomical Site Selection" className="max-w-2xl mx-auto">
+      {!activePatient ? (
+        <Card title="Patient Selection" className="max-w-2xl mx-auto">
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Select
-                label="Select Patient ID"
-                value={selectedPatientId}
-                onChange={e => {
-                  setSelectedPatientId(e.target.value);
-                  setSelectedWoundId('');
-                }}
-              >
-                <option value="">-- Choose Patient ID --</option>
-                {patients.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.patientCode} ({p.name})
-                  </option>
-                ))}
-              </Select>
-
-              <Select
-                label="Select Wound Site"
-                value={selectedWoundId}
-                disabled={!selectedPatientId}
-                onChange={e => setSelectedWoundId(e.target.value)}
-              >
-                <option value="">-- Choose Anatomical Site --</option>
-                {patientWounds.map(w => (
-                  <option key={w.id} value={w.id}>
-                    {w.location} ({w.description || 'Unspecified'})
-                  </option>
-                ))}
-              </Select>
-            </div>
-
-            {selectedPatientId && patientWounds.length === 0 && (
-              <div className="bg-amber-50 text-amber-800 p-3 rounded-md border border-amber-250 text-xs flex gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <div>
-                  No wound sites registered for this patient.
-                </div>
-              </div>
-            )}
+            <Select
+              label="Select Patient ID"
+              value={selectedPatientId}
+              onChange={e => {
+                setSelectedPatientId(e.target.value);
+                setSelectedWoundId('');
+              }}
+            >
+              <option value="">-- Choose Patient ID --</option>
+              {patients.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.patientCode} ({p.name})
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-slate-500">
+              Select a patient to begin wound assessment. No prior wound site registration is required.
+            </p>
           </div>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="space-y-6">
+          {/* PATIENT & SITE BAR */}
+          <Card className="p-4 bg-white border border-slate-200">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+              <div>
+                <label className="block text-2xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                  Selected Patient
+                </label>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-900 text-sm">
+                    {activePatient.patientCode} - {activePatient.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPatientId('');
+                      setSelectedWoundId('');
+                    }}
+                    className="text-xs text-teal-600 hover:text-teal-800 underline cursor-pointer"
+                  >
+                    Change
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <Select
+                  label="Tracked Wound Site (Optional)"
+                  value={selectedWoundId}
+                  onChange={e => setSelectedWoundId(e.target.value)}
+                >
+                  <option value="">-- Auto-assign / New Site --</option>
+                  {patientWounds.map(w => (
+                    <option key={w.id} value={w.id}>
+                      {w.location} ({w.description || 'Unspecified'})
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              <div>
+                <label className="block text-2xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                  Anatomical Location (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder={activeWound ? activeWound.location : "e.g. Left heel, sacrum..."}
+                  value={selectedWoundId && activeWound ? activeWound.location : optionalLocation}
+                  disabled={Boolean(selectedWoundId)}
+                  onChange={e => setOptionalLocation(e.target.value)}
+                  className="w-full text-xs border border-slate-300 rounded px-2.5 py-1.5 focus:outline-teal-600 disabled:bg-slate-100 disabled:text-slate-500"
+                />
+              </div>
+            </div>
+          </Card>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* UPLOAD FORM (2/3 width) */}
           <div className="lg:col-span-2 space-y-4">
             <Card title="Image Upload & Review">
@@ -211,7 +254,7 @@ export const NewAssessment: React.FC = () => {
 
                   <div className="flex justify-between items-center text-xs text-slate-500 pt-1">
                     <div>Assessment Date: <strong className="text-slate-800">{new Date().toISOString().split('T')[0]}</strong></div>
-                    <div>Anatomical Site: <strong className="text-slate-800">{activeWound.location}</strong></div>
+                    <div>Anatomical Site: <strong className="text-slate-800">{activeWound?.location || (optionalLocation.trim() || 'Auto-assigned upon analysis')}</strong></div>
                   </div>
 
                   <div className="w-full mt-6 text-left border border-slate-200 rounded-md p-3 bg-slate-50">
@@ -350,6 +393,7 @@ export const NewAssessment: React.FC = () => {
             </Card>
           </div>
         </div>
+      </div>
       )}
     </div>
   );
